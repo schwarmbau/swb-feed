@@ -11,7 +11,7 @@
   "exports": {
     ".": "./src/core/index.ts"
   },
-  "files": ["src", "examples", "README.md", "CONCEPT.md", "LICENSE"],
+  "files": ["src", "examples", "docs", "README.md", "CONCEPT.md", "AGENTS.md", "LICENSE"],
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",

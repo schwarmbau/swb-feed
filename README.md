@@ -4,7 +4,7 @@
 
 **Feed any second brain.** Harvest the sources you choose, journal everything, grade it against what you are actually working on, and route it to whichever brain you use: a Markdown wiki, a memory engine like Hindsight, your own system.
 
-A [Schwarmbau](https://schwarmbau.de) open-core project. TypeScript on [Bun](https://bun.sh), zero runtime dependencies, runs on your own machine. Read [CONCEPT.md](CONCEPT.md) for the why.
+A [Schwarmbau](https://schwarmbau.de) open-core project. TypeScript on [Bun](https://bun.sh), zero runtime dependencies, runs on your own machine. Read [CONCEPT.md](CONCEPT.md) for the why and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the parts. Working with an AI coding agent? Point it at [AGENTS.md](AGENTS.md).
 
 ```
 SOURCES → GUARD → JOURNAL → GRADE → ROUTE → SINKS
