@@ -1,0 +1,138 @@
+{
+  "note": "Exported from the maintainer's upstream engine; change upstream, not these files (see CONTRIBUTING.md).",
+  "upstream_sha": "74a8d637ed34651adc2c345f12c345f2f3f519f1",
+  "files": [
+    {
+      "path": "src/contracts/feed-item.ts",
+      "sha256": "144e97036143488bfeea3cf619c6729d149f55a4383dd44f16513c5b9ec13603"
+    },
+    {
+      "path": "src/contracts/ledger.ts",
+      "sha256": "89142c10e7ef497d0a17ccd82553c1d9b64929071e16dea8535fae9ce6cd406d"
+    },
+    {
+      "path": "src/core/types.ts",
+      "sha256": "dcb3c0522f0ade761452ed7e556d1c936f47e3e4b3b657e767b56f6dffc4ade8"
+    },
+    {
+      "path": "src/core/guard.ts",
+      "sha256": "2bb0f109cd39322bd27695125ad58e7a9c94ab1af7036160b3ea6dac22806746"
+    },
+    {
+      "path": "src/core/text.ts",
+      "sha256": "d06920096cd2190c3bc5ba62cc6d08c99d9bd5942808122ada0d49999df9e3a9"
+    },
+    {
+      "path": "src/core/ledger.ts",
+      "sha256": "a1424f07bb0c455b9f4a09791cbdd7fa38fbbec6c1a9df6947133818ef49387e"
+    },
+    {
+      "path": "src/core/intent.ts",
+      "sha256": "ca673c917f305c91cf56ae38ca4e8e2698f55ba646675bf5ecebb80fbd8a7036"
+    },
+    {
+      "path": "src/core/grade.ts",
+      "sha256": "4ab0f79b42e2db877f54e1b1fccdeddc62289829adfc5bd4f8b6c8e23321c40c"
+    },
+    {
+      "path": "src/core/model.ts",
+      "sha256": "9a5fc1a3e127cefa3c18759304e5371bc74f3695e91bf0748696b00e021f0faf"
+    },
+    {
+      "path": "src/core/route.ts",
+      "sha256": "7fc62a7e9b245a4cfdaa15cef2c282221e3868c547704a613ddc8935c5adc18d"
+    },
+    {
+      "path": "src/core/pipeline.ts",
+      "sha256": "9c14b7ed327feaa4477a63f7aa3b1fc068bbd40584b2f6c55dcb2d31c6283255"
+    },
+    {
+      "path": "src/core/cli.ts",
+      "sha256": "b53661cd6ec8de67b772d893110f9e6416c05a1e4c4e20ad7d3dbcb615769f7b"
+    },
+    {
+      "path": "src/core/digest.ts",
+      "sha256": "5265319aa397ad9216693d2a7ea0fb0dc6252174e5128c932b976a5918d11c3e"
+    },
+    {
+      "path": "src/core/voice.ts",
+      "sha256": "634e79e00745abf208aa41bdf6dddc2bb288ba3b60144d7258597bb6ee139cc0"
+    },
+    {
+      "path": "src/core/index.ts",
+      "sha256": "74a57aded47fcda4b5c57a07778024bf82d620ec2cc6b59893adbac02ac4759a"
+    },
+    {
+      "path": "src/sources/feed.ts",
+      "sha256": "47f205c3962b13ac3be2191fc7dfcb24e0b2dae9041e783301ac00cefb565c1d"
+    },
+    {
+      "path": "src/sources/inbox.ts",
+      "sha256": "be1c8b27c530097e99ecd8c9d9b814caefcea756a466818c40f5911bc57dc4cc"
+    },
+    {
+      "path": "src/sources/youtube.ts",
+      "sha256": "a9d75df94791dd84e6c28e8a3748b580d6cf12d7df5280b5d2ddc76e83a6a733"
+    },
+    {
+      "path": "src/sinks/wiki.ts",
+      "sha256": "463647de769dc60312ded8af684c4a8e2d430770d859565713a807f8e938772f"
+    },
+    {
+      "path": "src/sinks/page.ts",
+      "sha256": "465a17cc125ff9ae016fc60394a6529468e1d474c4827c64c813081699aae6a8"
+    },
+    {
+      "path": "src/sinks/deliveries.ts",
+      "sha256": "f399ffe503b95ce4c13c83c00ca0e0cec399db5b1a4336cec7ec6e2eeca9c495"
+    },
+    {
+      "path": "src/sinks/review.ts",
+      "sha256": "8f7201fb93fc99b63645e9f2fdbb0b92a2c932aa8909cc2915c900c5515dd373"
+    },
+    {
+      "path": "src/sinks/voice.ts",
+      "sha256": "5f8dded4dc982029ce2f106b123426205a64a4ab1b112fe1c981df2199bb8d56"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "cf49e70ec218e6287115d7fee86c8feab6105b2d275ddc7f368331b938369f58"
+    },
+    {
+      "path": "test/engine.test.ts",
+      "sha256": "82a48c0852713c0e41466028f803270b6c6dde329e6b1e440fd87d8f0c1bcfde"
+    },
+    {
+      "path": "test/voice.test.ts",
+      "sha256": "25f51c3c87bee1cfd1b0d5edfa53a029ceb0bb903ab2b87140d24a093613061c"
+    },
+    {
+      "path": "test/youtube.test.ts",
+      "sha256": "a6ddea283675572c43155328f0b8f796cde2a7a1b97be055099212ec0802b929"
+    },
+    {
+      "path": "test/seam.test.ts",
+      "sha256": "12278a9f4a6d9c4c840efc7b2e079285bfd1298747d941005fbcf20ea10c0028"
+    },
+    {
+      "path": "test/fixtures/seam.config.ts",
+      "sha256": "0ac0d723cc4ec516d23d97752dd4f58ddaf6f40740a586145d9e7d8525996d10"
+    },
+    {
+      "path": "test/fixtures/seam-intent.md",
+      "sha256": "f7f19d8e003a181a19ec979f756855fb695ea88bda21c65e76d251abaa46f90f"
+    },
+    {
+      "path": "test/model.test.ts",
+      "sha256": "b79205e8d7d9ab9e132d50a3e5a96f701e84dc330013f3ce53eecc0b878ebae2"
+    },
+    {
+      "path": "test/review.test.ts",
+      "sha256": "6bba67dddaa0d9cc7c887e501e3c06fd280f3072ad703125c5b5b33de3342106"
+    },
+    {
+      "path": "test/digest-health.test.ts",
+      "sha256": "1216dd631b2817872210383c6171cebe9cdf0a951ed4c6f021b8700ffccd943d"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@schwarmbau/swb-feed",
+  "version": "0.2.0",
+  "description": "Feed any second brain: harvest the sources you choose, journal everything, grade it against your intent, route it to the brain you use.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "https://github.com/schwarmbau/swb-feed.git" },
+  "bin": {
+    "swb-feed": "src/core/cli.ts"
+  },
+  "exports": {
+    ".": "./src/core/index.ts"
+  },
+  "files": ["src", "examples", "README.md", "CONCEPT.md", "LICENSE"],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "demo": "cd examples/second-brain && bun ../../src/core/cli.ts run"
+  },
+  "engines": {
+    "bun": ">=1.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "typescript": "^7.0.2"
+  }
+}
