@@ -28,11 +28,12 @@ How swb-feed is built, what each part owns, and where the design came from. The 
 | Component | Owns | Never does |
 |---|---|---|
 | **Source** (`src/sources/`) | fetching and parsing; may skip items the ledger already holds (`ctx.known`) | guard, grade, store |
-| **Guard** (`src/core/guard.ts`) | redacting secret shapes, cutting `<private>` spans, dropping unknown fields | deciding where an item goes |
+| **Guard** (`src/core/guard.ts`) | redacting secret shapes, cutting `<private>` spans, dropping unknown fields; flagging risk (prompt injection, role and tool-call markup, invisible characters, hidden HTML, data-sending links) on a matching copy, never on stored text | deciding where an item goes; deleting or rewriting flagged text |
+| **PII port** (`src/core/pii.ts`, `adapters/pii-openmed/`) | finding personal data in the new items of the sources you name; contact data makes an item `personal`, names only flag | send text anywhere you did not configure; cut values out |
 | **Ledger** (`src/core/ledger.ts`) | the append-only record of captures, grades, deliveries; dedupe by normalized URL; revisions | edit or delete a row |
 | **Grader** (`grade.ts`, `model.ts`) | a score against the owner's intent; optional model dimensions within a run budget | send `personal` items to a port that has not opted in |
 | **Own-voice stage** (`voice.ts`) | reading the owner's own words for decisions, ideas, asks, open questions; verifying quotes | land anything without approval |
-| **Router** (`route.ts`) | pure rules over grade, source, kind, trust | call a model |
+| **Router** (`route.ts`) | pure rules over grade, source, kind, trust, risk | call a model |
 | **Views** (`sinks/wiki.ts`, `page.ts`) | a projection rebuilt from the whole ledger | hold state |
 | **Deliveries** (`sinks/deliveries.ts`) | handing an item over once, with a receipt | deliver twice |
 | **Review queue** (`sinks/review.ts`) | holding a delivery until a person approves or rejects it | write without an approval receipt |
@@ -42,7 +43,7 @@ How swb-feed is built, what each part owns, and where the design came from. The 
 Two versioned contracts are the only things a second implementation needs to match:
 
 - **`swb-feed-item/v1`** (`src/contracts/feed-item.ts`): what a source hands over. `swb-feed pull <job> <source>` prints it as JSONL; `swb-feed ingest <job> <source>` reads it and journals exactly what `run` would. A source can therefore live in another process, language or machine.
-- **`swb-ledger/v1`** (`src/contracts/ledger.ts`): the ledger's rows (stamped with `v`) and the ports (`Sink`, `ModelPort`). The ledger files can be read by anything that speaks JSONL.
+- **`swb-ledger/v1`** (`src/contracts/ledger.ts`): the ledger's rows (stamped with `v`) and the ports (`Sink`, `ModelPort`, `PiiPort`). The ledger files can be read by anything that speaks JSONL. Risk is derived on every run and never stored, so no row changed shape.
 
 ## Lineage: what came from Daniel Miessler's feed design, and what changed
 
@@ -56,6 +57,7 @@ The pipeline follows the shape of Daniel Miessler's published Feed design for hi
 | Route to destinations (alerts, digest, archive) | **Views vs deliveries**: a view is rebuilt from the ledger, a delivery is receipted; a **review queue** puts a person between the feed and any memory |
 | Ingest normalizes content | **Write-ahead ledger** with a guard in front: nothing is lost when a grader or sink fails, and no secret is ever written |
 | (not in the design) | **The own-voice stage**: your own conversations and notes are read for decisions, never rated as content |
+| (not in the design) | **Risk flags that only tighten**: an item the guard calls `suspect` is held from every delivery sink but a review queue (or one that sets `acceptsRisk`), views get it with its flags, and the grading prompt never sees invisible characters or the flags themselves |
 
 ## Running it
 

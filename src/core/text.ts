@@ -24,7 +24,7 @@ export function unCdata(s: string): string {
 
 export function htmlToText(html: string): string {
   return decodeEntities(
-    html
+    splitHidden(html).visible
       .replace(/<(script|style|noscript|svg|head|nav|footer|form)\b[\s\S]*?<\/\1>/gi, " ")
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<\/(p|div|li|h[1-6]|blockquote|pre|tr|section|article)>/gi, "\n\n")
@@ -90,4 +90,56 @@ export function normalizeUrl(raw: string): string {
 /** Lowercased word tokens, umlauts kept, for matching an intent profile. */
 export function tokens(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9äöüß][a-z0-9äöüß+#.-]*/g) ?? [];
+}
+
+// Text a browser reader never sees: a hidden element's text or an HTML comment. `htmlToText`
+// leaves it out of the content, and `hiddenHtmlFlags` says what was left out, so the guard can
+// flag an item whose page hid something from its reader.
+const VOID = new Set(["img", "input", "br", "hr", "meta", "link", "source", "embed"]);
+const HIDDEN_STYLE =
+  /display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*(?:0|[01](?:\.\d+)?px)\b|opacity\s*:\s*0(?:\.0+)?(?![.\d])|(?:left|top|text-indent|margin-left)\s*:\s*-\d{3,}px|clip\s*:\s*rect\(\s*0|(?:max-)?height\s*:\s*0(?:px)?\s*;[^"']*overflow\s*:\s*hidden|color\s*:\s*(?:#fff(?:fff)?|white)\b[^"']*background(?:-color)?\s*:\s*(?:#fff(?:fff)?|white)\b|background(?:-color)?\s*:\s*(?:#fff(?:fff)?|white)\b[^"']*[^-]color\s*:\s*(?:#fff(?:fff)?|white)\b/i;
+
+export type HiddenKind = "css" | "attribute" | "aria" | "class" | "comment";
+
+function hiddenKind(attrs: string): HiddenKind | undefined {
+  const style = /\bstyle\s*=\s*("[^"]*"|'[^']*')/i.exec(attrs)?.[1] ?? "";
+  if (HIDDEN_STYLE.test(style)) return "css";
+  if (/(?:^|\s)hidden(?:\s|=|$)/i.test(attrs)) return "attribute";
+  if (/\baria-hidden\s*=\s*["']?true/i.test(attrs)) return "aria";
+  if (/\bclass\s*=\s*["'][^"']*\b(?:sr-only|visually-hidden|screen-reader-text|hidden)\b/i.test(attrs)) return "class";
+  return undefined;
+}
+
+/** The HTML without what a reader cannot see, and what was cut (its kind and its HTML). */
+export function splitHidden(html: string): { visible: string; hidden: { kind: HiddenKind; html: string }[] } {
+  const hidden: { kind: HiddenKind; html: string }[] = [];
+  let s = html.replace(/<!--(?!\s*\[if)([\s\S]*?)-->/g, (_, body: string) => {
+    if (body.trim()) hidden.push({ kind: "comment", html: body });
+    return " ";
+  });
+  const open = /<([a-z][a-z0-9]*)\b([^>]*)>/gi;
+  for (let m = open.exec(s); m; m = open.exec(s)) {
+    const kind = hiddenKind(m[2]);
+    if (!kind) continue;
+    const tag = m[1].toLowerCase();
+    let end = open.lastIndex;
+    if (!VOID.has(tag) && !m[0].endsWith("/>")) {
+      // Depth-counted, so a hidden element's nested children go with it; an unclosed one hides the rest.
+      const re = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+      re.lastIndex = end;
+      let depth = 1;
+      end = s.length;
+      for (let t = re.exec(s); t; t = re.exec(s)) {
+        depth += t[1] ? -1 : 1;
+        if (depth === 0) {
+          end = re.lastIndex;
+          break;
+        }
+      }
+    }
+    hidden.push({ kind, html: s.slice(m.index, end) });
+    s = `${s.slice(0, m.index)} ${s.slice(end)}`;
+    open.lastIndex = m.index;
+  }
+  return { visible: s, hidden };
 }

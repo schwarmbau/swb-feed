@@ -4,16 +4,16 @@
 
 import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import type { Envelope, FeedConfig, GradedItem, Grade, IntentProfile, Job, RawItem, RunContext, Rule, Source, SourceHealth, VoiceItem } from "./types.ts";
+import type { Envelope, FeedConfig, GradedItem, Grade, IntentProfile, Job, PiiConfig, PiiLabel, RawItem, RunContext, Rule, Source, SourceHealth, VoiceItem } from "./types.ts";
 import { isModelGrade, modelGrade, pool, UnreadableAnswer } from "./model.ts";
 import { Ledger } from "./ledger.ts";
-import { guard } from "./guard.ts";
+import { GUARD_FLAG, guard, riskOf } from "./guard.ts";
 import { loadIntent } from "./intent.ts";
 import { gradeDeterministic } from "./grade.ts";
 import { route } from "./route.ts";
 import { normalizeUrl, sha256 } from "./text.ts";
 import { alreadyDecided as alreadyDecided_, completedVoiceItems, extractionConfidence, extractions, extractVoice, failures, markKey, markStart, mineConversations, offerOrder, recordExtraction, recordFailure, relatedPoint, samePoint, voiceChunks, voiceWindow, type ExtractionRow } from "./voice.ts";
-import { blockedIds, openIntents, pendingReviews, queueVoice, reviewRows, supersedeVoice } from "../sinks/review.ts";
+import { blockedIds, isReviewSink, openIntents, pendingReviews, queueVoice, reviewRows, supersedeVoice } from "../sinks/review.ts";
 
 export interface SourceReport {
   source: string;
@@ -26,6 +26,8 @@ export interface RunReport {
   sources: SourceReport[];
   fresh: GradedItem[];
   delivered: { sink: string; id: string; ok: boolean; error?: string }[];
+  /** Items the guard called suspect, kept from a delivery sink that does not accept them (retried every run, never receipted). */
+  held: { sink: string; id: string; flags: string[] }[];
   views: string[];
   ledgerSize: number;
   model?: { port: string; graded: number; failed: number; waiting: number; error?: string };
@@ -68,6 +70,33 @@ export function envelopeFrom(raw: RawItem, src: Pick<Source, "name" | "trust" | 
     ...(flags.length ? { flags } : {}),
     ...(raw.own_voice === true ? { own_voice: true } : {}),
   };
+}
+
+const TIGHTEN: PiiLabel[] = ["email", "phone", "iban", "bank_account", "address", "id_number", "date_of_birth"];
+/** Per call to the detector; a check that does not finish counts as unchecked. */
+const PII_DEADLINE_MS = 60_000;
+
+/**
+ * Runs the configured detector over an item's guarded text. Hits become `guard:pii:<label>` flags; a
+ * tightening label makes the item personal through the one-way rule in `envelopeFrom`. A detector
+ * that fails or times out leaves `guard:pii:unchecked`, and the item is kept as personal: fail closed.
+ */
+export async function checkPii(pii: PiiConfig, raw: RawItem, e: Envelope, src: Pick<Source, "name" | "trust" | "privacy_class">): Promise<Envelope> {
+  let labels: string[];
+  let tighten = false;
+  try {
+    const hits = await withDeadline(pii.port.detect(`${e.title}\n\n${e.content}`), PII_DEADLINE_MS, `pii ${pii.port.name}`);
+    const kept = hits.filter((h) => h.score >= (pii.minScore ?? 0.5));
+    labels = [...new Set(kept.map((h) => h.label))].sort();
+    tighten = kept.some((h) => (pii.tighten ?? TIGHTEN).includes(h.label));
+  } catch {
+    labels = ["unchecked"];
+    tighten = true;
+  }
+  if (!labels.length) return e;
+  const flags = [...(raw.flags ?? []), ...labels.map((l) => `${GUARD_FLAG}pii:${l}`)];
+  const checked = envelopeFrom({ ...raw, flags, ...(tighten ? { privacy_class: "personal" as const } : {}) }, src);
+  return { ...checked, captured_at: e.captured_at };
 }
 
 export function identityOf(url: string | undefined, externalId: string, source: string): string {
@@ -118,9 +147,10 @@ export function ownVoiceGrade(g: Grade): Grade {
 function toGraded(cfg: FeedConfig, e: Envelope, g: Grade, rules: Rule[]): GradedItem & { sinks: string[] } {
   const own = isOwnVoice(cfg, e);
   const grade = own ? ownVoiceGrade(g) : g;
-  const r = route(rules, e, grade);
+  const risk = riskOf(e);
+  const r = route(rules, e, grade, risk);
   // `own_voice` tells every view this is his voice: a memory view then carries only the recorder's abstract.
-  return { ...e, ...(own ? { own_voice: true } : {}), grade, rules: r.rules, priority: r.priority, sinks: r.sinks };
+  return { ...e, ...(own ? { own_voice: true } : {}), grade, risk, rules: r.rules, priority: r.priority, sinks: r.sinks };
 }
 
 const accepts = (sink: FeedConfig["sinks"][string], e: Envelope) =>
@@ -132,6 +162,11 @@ async function deliver(cfg: FeedConfig, ledger: Ledger, items: (GradedItem & { s
       const sink = cfg.sinks[name];
       if (!sink) throw new Error(`rule routes to unknown sink "${name}"`);
       if (sink.kind !== "delivery" || !accepts(sink, item) || ledger.wasDelivered(item.id, name)) continue;
+      // A suspect item reaches a delivery only through a person: a review queue, or a sink that says it takes them.
+      if (item.risk?.level === "suspect" && !isReviewSink(sink) && !sink.acceptsRisk) {
+        report.held.push({ sink: name, id: item.id, flags: item.risk.flags });
+        continue;
+      }
       try {
         const { ref, skipped } = await sink.deliver(item, ctx);
         if (!ctx.dryRun && !skipped) ledger.recordDelivery({ id: item.id, sink: name, at: new Date().toISOString(), ok: true, ref });
@@ -231,7 +266,7 @@ export function acquireLock(dataDir: string): (() => void) | null {
 export async function ingest(cfg: FeedConfig, job: Job, pulls: { source: Source; items?: RawItem[] }[], ctx: RunContext): Promise<RunReport> {
   const ledger = new Ledger(cfg.dataDir);
   const { profile, hash } = loadIntent(cfg.intent);
-  const report: RunReport = { sources: [], fresh: [], delivered: [], views: [], ledgerSize: 0 };
+  const report: RunReport = { sources: [], fresh: [], delivered: [], held: [], views: [], ledgerSize: 0 };
   const fresh: Envelope[] = [];
   const revised = new Set<string>();
 
@@ -263,10 +298,13 @@ export async function ingest(cfg: FeedConfig, job: Job, pulls: { source: Source;
       continue;
     }
     sr.pulled = raws.length;
+    const piiHere = cfg.pii?.sources.includes(source.name) ? cfg.pii : undefined;
     for (const raw of raws) {
-      const e = envelopeFrom(raw, source);
+      let e = envelopeFrom(raw, source);
       const revision = ledger.isRevision(e);
       if ((ledger.has(e) && !revision) || fresh.some((f) => f.id === e.id)) continue;
+      // Only what is about to be journaled is checked: a known item never reaches the detector again.
+      if (piiHere) e = await checkPii(piiHere, raw, e, source);
       if (revision) revised.add(e.id);
       if (!ctx.dryRun) ledger.append(e);
       fresh.push(e);
@@ -579,7 +617,7 @@ export async function regrade(cfg: FeedConfig, ctx: RunContext): Promise<{ chang
   const ledger = new Ledger(cfg.dataDir);
   const { profile, hash } = loadIntent(cfg.intent);
   const before = ledger.latestGrades();
-  const report: RunReport = { sources: [], fresh: [], delivered: [], views: [], ledgerSize: ledger.size() };
+  const report: RunReport = { sources: [], fresh: [], delivered: [], held: [], views: [], ledgerSize: ledger.size() };
   const items: (GradedItem & { sinks: string[] })[] = [];
   let changed = 0;
   for (const e of ledger.envelopes()) {

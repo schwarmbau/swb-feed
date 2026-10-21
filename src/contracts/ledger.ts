@@ -139,6 +139,8 @@ export interface ReviewRow {
   landed_kind?: VoiceKind;
   /** approving: whether he typed the kind. */
   typed?: boolean;
+  /** queued: the guard's flags on the item, shown to him at approval. */
+  risk?: string[];
 }
 
 /**
@@ -152,8 +154,40 @@ export interface ModelPort {
   json(system: string, user: string): Promise<unknown>;
 }
 
+/** `suspect`: something in the item is shaped to steer a model that reads it. `note`: the item talks about such things. */
+export type RiskLevel = "none" | "note" | "suspect";
+
+/**
+ * What the guard flagged on an item. Derived from the stored item whenever it is routed, like a
+ * grade, and never written to the ledger. A flag can only hold an item back, never let it through.
+ */
+export interface Risk {
+  level: RiskLevel;
+  /** Rule names from a fixed vocabulary (`injection:override`, `hidden:tag_chars` …), never item text. */
+  flags: string[];
+}
+
+/** One kind of personal data a detector found: a label from the fixed set below and its confidence (0–1). Never the value. */
+export interface PiiHit {
+  label: PiiLabel;
+  score: number;
+}
+
+export type PiiLabel = "person" | "org" | "email" | "phone" | "iban" | "bank_account" | "address" | "id_number" | "date_of_birth" | "username" | "ip";
+
+/**
+ * The one door to a personal-data detector (a local model, a service). Labels only, no spans: the
+ * guard flags and tightens an item, it never cuts text out of it.
+ */
+export interface PiiPort {
+  name: string;
+  detect(text: string): Promise<PiiHit[]>;
+}
+
 export interface GradedItem extends Envelope {
   grade: Grade;
+  /** Set by the pipeline on every routed item. */
+  risk?: Risk;
   /** Rules that matched, in order. */
   rules: string[];
   priority: Priority;
@@ -180,6 +214,11 @@ export interface ViewSink extends SinkBase {
 
 export interface DeliverySink extends SinkBase {
   kind: "delivery";
+  /**
+   * May an item the guard calls `suspect` be handed to this sink? Default no: it is held back (a
+   * review queue takes it, so a person decides). Views always receive it, with its risk attached.
+   */
+  acceptsRisk?: boolean;
   /** `skipped: true` = rehearsed, not handed over: no receipt, so a later live run still delivers. */
   deliver(item: GradedItem, ctx: RunContext): Promise<{ ref?: string; skipped?: boolean }>;
 }
@@ -204,6 +243,8 @@ export interface Rule {
     /** The deterministic keyword score, whichever grader produced the grade. */
     keywords?: NumberCondition;
     tiers?: Tier[];
+    /** The guard's risk level is one of these (`none` when nothing was flagged). */
+    risk?: RiskLevel[];
   };
   to: string[];
   priority?: Priority;

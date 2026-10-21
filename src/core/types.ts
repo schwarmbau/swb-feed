@@ -4,7 +4,7 @@
 
 export * from "../contracts/feed-item.ts";
 export * from "../contracts/ledger.ts";
-import type { ModelPort, Rule, Sink, VoiceItem, VoiceKind } from "../contracts/ledger.ts";
+import type { ModelPort, PiiLabel, PiiPort, Rule, Sink, VoiceItem, VoiceKind } from "../contracts/ledger.ts";
 import type { Source } from "../contracts/feed-item.ts";
 
 /** Where an approved voice item lands. Only `review approve` calls it. */
@@ -49,6 +49,16 @@ export interface ModelConfig {
 }
 
 
+export interface PiiConfig {
+  port: PiiPort;
+  /** Sources whose new items are checked (an inbox, a mail drop). Public feeds are not: their names are public context. */
+  sources: string[];
+  /** Labels that make an item personal. Default: contact, bank, address, ID and birth date; names and firms only flag. */
+  tighten?: PiiLabel[];
+  /** Hits below this confidence are ignored (default 0.5). */
+  minScore?: number;
+}
+
 export interface Job {
   sources: Source[];
   rules: Rule[];
@@ -70,6 +80,8 @@ export interface FeedConfig {
   minContentChars?: number;
   /** Optional model grading (Daniel's Summarize + Rate). Without it every grade is deterministic. */
   model?: ModelConfig;
+  /** Personal-data checks on the new items of some sources: hits are flags, and contact data makes an item personal. */
+  pii?: PiiConfig;
   /** The own-voice stage: decisions, ideas, asks and open questions out of personal items, into the review queue. */
   voice?: VoiceConfig;
   /** Source reputation and auto-demotion (Daniel). Defaults below; `false` turns demotion off. */

@@ -1,7 +1,8 @@
 // Routing is pure logic, no model: every rule whose conditions all hold fires,
 // and an item reaches each sink at most once however many rules point there.
 
-import type { Envelope, Grade, NumberCondition, Priority, Rule } from "./types.ts";
+import type { Envelope, Grade, NumberCondition, Priority, Risk, Rule } from "./types.ts";
+import { riskOf } from "./guard.ts";
 
 const RANK: Record<Priority, number> = { immediate: 0, daily: 1, weekly: 2, archive: 3 };
 
@@ -20,7 +21,8 @@ export function keywordScore(g: Grade): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
-export function matches(rule: Rule, e: Envelope, g: Grade): boolean {
+/** `risk`: the item's risk when the caller has it; computed from the item when a rule asks and it is missing. */
+export function matches(rule: Rule, e: Envelope, g: Grade, risk?: Risk): boolean {
   const w = rule.when;
   if (!w) return true;
   if (!within(w.score, g.score)) return false;
@@ -34,15 +36,16 @@ export function matches(rule: Rule, e: Envelope, g: Grade): boolean {
   if (w.sources && !w.sources.includes(e.source)) return false;
   if (w.kinds && !w.kinds.includes(e.content_kind)) return false;
   if (w.trust && !w.trust.includes(e.trust)) return false;
+  if (w.risk && !w.risk.includes((risk ?? riskOf(e)).level)) return false;
   return true;
 }
 
-export function route(rules: Rule[], e: Envelope, g: Grade): { sinks: string[]; rules: string[]; priority: Priority } {
+export function route(rules: Rule[], e: Envelope, g: Grade, risk?: Risk): { sinks: string[]; rules: string[]; priority: Priority } {
   const sinks = new Set<string>();
   const fired: string[] = [];
   let priority: Priority = "archive";
   for (const r of rules) {
-    if (!matches(r, e, g)) continue;
+    if (!matches(r, e, g, risk)) continue;
     fired.push(r.name);
     for (const s of r.to) sinks.add(s);
     const p = r.priority ?? "archive";

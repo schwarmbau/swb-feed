@@ -1,0 +1,10 @@
+{
+  "name": "swb-feed-pii-openmed",
+  "private": true,
+  "type": "module",
+  "description": "A PiiPort for swb-feed: OpenMed PII token classifiers (Apache-2.0), run locally through ONNX Runtime. Model files are downloaded, never committed.",
+  "dependencies": {
+    "@huggingface/transformers": "4.3.1",
+    "onnxruntime-node": "1.30.0"
+  }
+}

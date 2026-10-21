@@ -13,7 +13,8 @@ export { youtube } from "../sources/youtube.ts";
 export { openAICompatible } from "./model.ts";
 export { writeDigest } from "./digest.ts";
 export { runCli } from "./cli.ts";
-export { guard } from "./guard.ts";
+export { assess, guard, riskOf } from "./guard.ts";
+export { combinePii, contactPii } from "./pii.ts";
 export { parseIntent } from "./intent.ts";
 
 import type { FeedConfig } from "./types.ts";

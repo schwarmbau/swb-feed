@@ -39,7 +39,8 @@ export function reviewQueue(o: { approve: DeliverySink }): ReviewSink {
     review: { target: o.approve },
     async deliver(item, ctx) {
       if (ctx.dryRun) return { ref: "would queue for review", skipped: true };
-      appendReview(ctx.dataDir, { id: item.id, decision: "queued", at: new Date().toISOString(), title: item.title, source: item.source, ...(item.url ? { url: item.url } : {}), score: item.grade.score });
+      const risk = item.risk && item.risk.level !== "none" ? { risk: item.risk.flags } : {};
+      appendReview(ctx.dataDir, { id: item.id, decision: "queued", at: new Date().toISOString(), title: item.title, source: item.source, ...(item.url ? { url: item.url } : {}), score: item.grade.score, ...risk });
       return { ref: "queued for review" };
     },
   };

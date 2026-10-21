@@ -25,7 +25,9 @@ Tests create their own temp dirs. Set `TMPDIR` to a scratch dir if you run them 
 | `src/contracts/ledger.ts` | `swb-ledger/v1`: `Envelope`, `Grade`, `Delivery`, `ReviewRow`, `Rule`, `Sink`, `ModelPort`, `RunContext`, the row version stamp `v`. |
 | `src/core/types.ts` | re-exports both contracts plus engine config: `FeedConfig`, `Job`, `ModelConfig`, `VoiceConfig`, `IntentProfile`, `SourceHealth`. |
 | `src/core/pipeline.ts` | `ingest()`: pull → guard → journal → grade (deterministic, then model within budget) → own-voice stage → route → deliver → render views; health, reputation, circuit, run lock. |
-| `src/core/guard.ts` | secret-shape redaction and `<private>` stripping. Runs before anything is written. |
+| `src/core/guard.ts` | secret-shape redaction and `<private>` stripping, before anything is written; `assess`/`riskOf`: risk flags (`none`/`note`/`suspect`) derived from stored text on every run. |
+| `src/core/pii.ts` | `contactPii()` (zero-dependency personal-data port) and `combinePii()`. |
+| `adapters/pii-openmed/` | optional `PiiPort` on local ONNX models; its own `package.json`, models downloaded, never committed. The engine never imports it. |
 | `src/core/ledger.ts` | the append-only journal and its readers; skips and counts malformed rows. |
 | `src/core/grade.ts`, `intent.ts` | deterministic grading against the Markdown intent profile; every point is explained in `why`. |
 | `src/core/model.ts` | optional model grading behind `ModelPort`; `openAICompatible()` adapter; answer validation. |
@@ -45,9 +47,11 @@ Data a run writes, all in the config's `dataDir`: `ledger.jsonl` (captures), `gr
 3. **Views are rebuilt, deliveries are receipted.** A view is regenerated from the whole ledger (`rebuild`) and never holds state. A delivery runs once per item and sink and leaves a receipt; `skipped: true` means rehearsed, no receipt, retried next run.
 4. **Two privacy axes, never merged.** `privacy_class` decides where an item may go (sinks and model ports must opt in to `personal`); an item can only make itself stricter than its source. Own-voice decides how it is graded (never rated as content).
 5. **Deterministic first.** Every item gets an explained deterministic grade; a model grade is optional, budgeted, and a failed model call keeps the deterministic grade.
-6. **Model output is untrusted.** Item text is fenced and defanged in prompts; model answers are validated and pass the guard before they are stored.
+6. **Model output is untrusted.** Item text is fenced and defanged in prompts (invisible characters dropped, guard flags never shown); model answers are validated and pass the guard before they are stored.
 7. **No runtime dependencies.** New capability arrives as a port the config fills (like `ModelPort`), not as a package import in the engine.
 8. **Contracts are versioned.** A breaking change to `src/contracts/` needs a new version string, not an edit.
+9. **Risk only tightens.** A guard flag can hold an item back from a delivery sink or make it `personal`; it can never make an item looser, delete its text, or drop it from the ledger or a view. Stored text is never normalized; matching runs on a copy.
+10. **Optional adapters live in `adapters/`**, each with its own `package.json`. Invariant 7 holds for `src/`: an adapter fills a port in the config, never the other way round.
 
 ## Adding a source or a sink
 

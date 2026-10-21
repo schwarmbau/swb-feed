@@ -1,6 +1,6 @@
 {
   "note": "Exported from the maintainer's upstream engine; change upstream, not these files (see CONTRIBUTING.md).",
-  "upstream_sha": "74a8d637ed34651adc2c345f12c345f2f3f519f1",
+  "upstream_sha": "a0d72387",
   "files": [
     {
       "path": "src/contracts/feed-item.ts",
@@ -8,19 +8,43 @@
     },
     {
       "path": "src/contracts/ledger.ts",
-      "sha256": "89142c10e7ef497d0a17ccd82553c1d9b64929071e16dea8535fae9ce6cd406d"
+      "sha256": "a6d885c740ed4da88578a2bb3232b137ca0e43ca294bc346cd4cfa4a21cdfa01"
     },
     {
       "path": "src/core/types.ts",
-      "sha256": "dcb3c0522f0ade761452ed7e556d1c936f47e3e4b3b657e767b56f6dffc4ade8"
+      "sha256": "7515982c78d0663dad3a03b1e91f3f00745a7fa014f8302dc0acb8458e05a943"
     },
     {
       "path": "src/core/guard.ts",
-      "sha256": "2bb0f109cd39322bd27695125ad58e7a9c94ab1af7036160b3ea6dac22806746"
+      "sha256": "6bf795adc744ab346b6ab6d4b1e81626f234aaa8e3bd1fd3fae65188f2ac7514"
+    },
+    {
+      "path": "src/core/pii.ts",
+      "sha256": "30458fad07591d28f930020e1006fe692a6b644f07d53112ced0d539dba62f65"
+    },
+    {
+      "path": "test/guard.test.ts",
+      "sha256": "acfec0968e8060cb4f8be4efdc53472ef5579553f17ac7cb86d6d2ae974fadf1"
+    },
+    {
+      "path": "adapters/pii-openmed/index.ts",
+      "sha256": "f0694ace41da0c5735af23e74719fced3ea47c230a169a02b91f231de9829871"
+    },
+    {
+      "path": "adapters/pii-openmed/package.json",
+      "sha256": "a1f40a13c9bc56c51181fe135efc5baccaf7de99da0cc1e29872e22d6e0c1376"
+    },
+    {
+      "path": "adapters/pii-openmed/bun.lock",
+      "sha256": "31115395658e0d4385cbe67b639fc7c20b476578d21849257bc377ca76bbb9c0"
+    },
+    {
+      "path": "adapters/pii-openmed/.gitignore",
+      "sha256": "ac0e845fcf73a9ab1766660e5f2d494e9addab833b06b94e3ba607d72d383ad8"
     },
     {
       "path": "src/core/text.ts",
-      "sha256": "d06920096cd2190c3bc5ba62cc6d08c99d9bd5942808122ada0d49999df9e3a9"
+      "sha256": "0937184e768c5945cffa915cfed5ccbbcd6e52ff08a4c051774fb1933eb54fcd"
     },
     {
       "path": "src/core/ledger.ts",
@@ -36,23 +60,23 @@
     },
     {
       "path": "src/core/model.ts",
-      "sha256": "9a5fc1a3e127cefa3c18759304e5371bc74f3695e91bf0748696b00e021f0faf"
+      "sha256": "c040149d24bdae70260b7324f6d7eea376deb468d07d029a72ac378a9838b4f7"
     },
     {
       "path": "src/core/route.ts",
-      "sha256": "7fc62a7e9b245a4cfdaa15cef2c282221e3868c547704a613ddc8935c5adc18d"
+      "sha256": "3b6e23f1e08b1440b1b8404e5f9226954acc84c2e92b4daf8ecb69eedec2fec7"
     },
     {
       "path": "src/core/pipeline.ts",
-      "sha256": "9c14b7ed327feaa4477a63f7aa3b1fc068bbd40584b2f6c55dcb2d31c6283255"
+      "sha256": "84d43df2dc9eb2ae2a09ce467750dcfb04ac61c400a95999fbf6acc5a83973b7"
     },
     {
       "path": "src/core/cli.ts",
-      "sha256": "b53661cd6ec8de67b772d893110f9e6416c05a1e4c4e20ad7d3dbcb615769f7b"
+      "sha256": "78fe1c4255b2f4a7216f38d6ca5fd8c80395b988463c570b2317e7445c6f8379"
     },
     {
       "path": "src/core/digest.ts",
-      "sha256": "5265319aa397ad9216693d2a7ea0fb0dc6252174e5128c932b976a5918d11c3e"
+      "sha256": "833a9de3eadd2bbdc356e68e69a8ef60ececc1e39f3892e199499162b357e253"
     },
     {
       "path": "src/core/voice.ts",
@@ -60,15 +84,15 @@
     },
     {
       "path": "src/core/index.ts",
-      "sha256": "74a57aded47fcda4b5c57a07778024bf82d620ec2cc6b59893adbac02ac4759a"
+      "sha256": "7adfe77d76d6d4a1e55404d8f4060970c96c7c71f5080cd4e7009c5987262a88"
     },
     {
       "path": "src/sources/feed.ts",
-      "sha256": "47f205c3962b13ac3be2191fc7dfcb24e0b2dae9041e783301ac00cefb565c1d"
+      "sha256": "de75309cd8fd7c1fdc6314bd5a22ad0ed341add970fcc5f073525f4f0d898e8f"
     },
     {
       "path": "src/sources/inbox.ts",
-      "sha256": "be1c8b27c530097e99ecd8c9d9b814caefcea756a466818c40f5911bc57dc4cc"
+      "sha256": "bcebd53ffa356c171997e00db2b971297a959d7c2c2702dd6ef0218071c9a47c"
     },
     {
       "path": "src/sources/youtube.ts",
@@ -76,7 +100,7 @@
     },
     {
       "path": "src/sinks/wiki.ts",
-      "sha256": "463647de769dc60312ded8af684c4a8e2d430770d859565713a807f8e938772f"
+      "sha256": "db9a6688560445ea4ef7d5294d3453c66ee8a866db2b461c7b8fce724d7dc820"
     },
     {
       "path": "src/sinks/page.ts",
@@ -88,7 +112,7 @@
     },
     {
       "path": "src/sinks/review.ts",
-      "sha256": "8f7201fb93fc99b63645e9f2fdbb0b92a2c932aa8909cc2915c900c5515dd373"
+      "sha256": "639d204c7d9b5fd1a4809233cb81f0ecc54754c7fa9597610750c1433b25e696"
     },
     {
       "path": "src/sinks/voice.ts",

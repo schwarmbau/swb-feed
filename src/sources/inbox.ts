@@ -5,7 +5,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import type { PrivacyClass, RawItem, Source, Trust } from "../contracts/feed-item.ts";
 import { htmlToText } from "../core/text.ts";
-import { stripPrivate } from "../core/guard.ts";
+import { hiddenHtmlFlags, stripPrivate } from "../core/guard.ts";
 
 export interface InboxOptions {
   name: string;
@@ -46,6 +46,7 @@ export function inbox(o: InboxOptions): Source {
         const isHtml = /\.html?$/i.test(f);
         const { meta, body } = isHtml ? { meta: {}, body: raw } : frontmatter(raw);
         const text = isHtml ? htmlToText(body) : body.trim();
+        const flags = isHtml ? hiddenHtmlFlags(body) : [];
         const heading = text.match(/^#\s+(.+)$/m)?.[1];
         const content = heading ? text.replace(/^#\s+.+\n*/m, "").trim() : text;
         const title = (meta as Record<string, string>).title ?? heading ?? basename(f, extname(f));
@@ -57,6 +58,7 @@ export function inbox(o: InboxOptions): Source {
           content,
           content_kind: (meta as Record<string, string>).kind ?? o.kind ?? "note",
           published_at: new Date(statSync(path).mtimeMs).toISOString(),
+          ...(flags.length ? { flags } : {}),
           // His own words only when he says so: exported articles and other people's text stay content.
           ...((meta as Record<string, string>).voice === "own" ? { own_voice: true } : {}),
         };

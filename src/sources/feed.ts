@@ -4,6 +4,7 @@
 
 import type { PrivacyClass, RawItem, PullContext, Source, Trust } from "../contracts/feed-item.ts";
 import { decodeEntities, htmlToText, unCdata } from "../core/text.ts";
+import { hiddenHtmlFlags } from "../core/guard.ts";
 
 function field(block: string, names: string[]): string | undefined {
   for (const n of names) {
@@ -19,11 +20,13 @@ function attr(tag: string, name: string): string | undefined {
   return m ? decodeEntities(m[1]) : undefined;
 }
 
+function markup(raw: string): string {
+  const v = unCdata(raw).trim();
+  return /&lt;\/?[a-z]/i.test(v) ? decodeEntities(v) : v;
+}
+
 function plain(raw: string | undefined): string {
-  if (!raw) return "";
-  let v = unCdata(raw).trim();
-  if (/&lt;\/?[a-z]/i.test(v)) v = decodeEntities(v);
-  return htmlToText(v);
+  return raw ? htmlToText(markup(raw)) : "";
 }
 
 function atomLink(block: string): string | undefined {
@@ -39,6 +42,8 @@ export interface ParsedEntry {
   author?: string;
   content: string;
   published_at?: string;
+  /** Guard flags read from the body's markup (hidden text, data-sending links). */
+  flags?: string[];
 }
 
 export function parseFeed(input: string): ParsedEntry[] {
@@ -60,11 +65,9 @@ function parseBlocks(xml: string, field: (b: string, names: string[]) => string 
     const url = isAtom ? atomLink(b) : plain(field(b, ["link"])) || undefined;
     const id = plain(field(b, ["guid", "id"])) || url || plain(field(b, ["title"]));
     const author = plain(field(b, ["dc:creator"])) || plain(field(field(b, ["author"]) ?? "", ["name"])) || plain(field(b, ["author"]));
-    const content =
-      plain(field(b, ["content:encoded"])) ||
-      plain(field(b, ["content"])) ||
-      plain(field(b, ["media:description"])) ||
-      plain(field(b, ["description", "summary"]));
+    const body = [["content:encoded"], ["content"], ["media:description"], ["description", "summary"]].map((n) => field(b, n)).find((v) => plain(v));
+    const content = plain(body);
+    const flags = body ? hiddenHtmlFlags(markup(body)) : [];
     const date = plain(field(b, ["pubDate", "published", "dc:date", "updated"]));
     const parsed = date ? new Date(date) : undefined;
     return {
@@ -74,6 +77,7 @@ function parseBlocks(xml: string, field: (b: string, names: string[]) => string 
       author: author || undefined,
       content,
       published_at: parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : undefined,
+      ...(flags.length ? { flags } : {}),
     };
   });
 }

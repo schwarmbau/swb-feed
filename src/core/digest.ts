@@ -76,7 +76,7 @@ export function writeDigest(cfg: FeedConfig, opts: { dir: string; now?: Date; ho
   ];
   const waiting = pendingReviews(cfg.dataDir);
   const failedDeliveries = ledger.deliveries().filter((d) => !d.ok && d.at >= since);
-  const flagged = all.filter((i) => i.flags?.length && i.captured_at >= since);
+  const flagged = all.filter((i) => (i.flags?.length || i.risk?.level === "suspect") && i.captured_at >= since);
   const health = readHealth(cfg.dataDir);
   const sick = Object.entries(health).filter(([, h]) => h.consecutive_failures > 0);
   const demoted = Object.entries(health).filter(([, h]) => h.demoted_at);
@@ -108,7 +108,7 @@ export function writeDigest(cfg: FeedConfig, opts: { dir: string; now?: Date; ho
           "",
           ...sick.map(([n, h]) => `- **${n}** failing ${h.consecutive_failures}×${h.consecutive_failures >= 5 ? " (circuit open, retried every 6 h)" : ""} since ${h.last_ok?.slice(0, 16) ?? "never"}: ${h.last_error ?? ""}`),
           ...demoted.map(([n, h]) => `- **${n}** demoted ${h.demoted_at!.slice(0, 10)}: ${h.demoted_reason ?? ""} (lift: \`source reset "${n}"\`)`),
-          ...flagged.map((i) => `- ${i.title} (${i.source}): ${i.flags!.join("; ")}`),
+          ...flagged.map((i) => `- ${i.title} (${i.source}): ${[...(i.flags ?? []), ...(i.risk?.level === "suspect" ? [`guard suspect: ${i.risk.flags.join(", ")}`] : [])].join("; ")}`),
           ...parked.map(([item, f]) => `- ${byId.get(item)?.title ?? item}: own-voice reading failed ${f.length}×, parked (last: ${clip(f[f.length - 1]!.error, 120)}); try again: \`swb-feed voice reset ${item}\``),
           ...warned.map((x) => `- ${byId.get(x.item)?.title ?? x.item}: text that tried to instruct the extractor (${clip(x.warnings!.join("; "), 160)})`),
           ...failedDeliveries.slice(0, 10).map((d) => `- delivery to ${d.sink} failed for ${byId.get(d.id)?.title ?? d.id}: ${clip(d.error ?? "", 120)}`),

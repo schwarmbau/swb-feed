@@ -114,6 +114,7 @@ function printReport(name: string, r: RunReport) {
   const bad = r.delivered.filter((d) => !d.ok);
   if (r.delivered.length) err(`\n  delivered ${ok}${bad.length ? `, failed ${bad.length} (${bad[0].sink}: ${bad[0].error})` : ""}`);
   if (rehearsed.length) err(`  rehearsed ${rehearsed.length} (no receipt): ${rehearsed[0].sink} ${rehearsed[0].error!.replace(/^rehearsed: /, "")}`);
+  if (r.held.length) err(`  held ${r.held.length} suspect (guard): ${r.held[0].sink} ← ${r.held[0].id} (${r.held[0].flags.join(", ")}); explain <id> shows why`);
   for (const v of r.views) err(`  view ${v}`);
   err(`  ledger: ${r.ledgerSize} items`);
 }
@@ -287,7 +288,7 @@ async function dispatch(cfg: FeedConfig, c: RunContext) {
           `  id ${item.id} · ${item.source} · ${item.content_kind} · ${item.privacy_class} · trust ${item.trust}`,
           item.url ? `  ${item.url}` : "",
           `\ncaptured  ${item.captured_at} · content ${item.content.length} chars · sha256 ${item.content_hash.slice(0, 12)}`,
-          `guard     ${item.redactions.length ? `redacted ${item.redactions.join(", ")}` : "nothing redacted"}`,
+          `guard     ${item.redactions.length ? `redacted ${item.redactions.join(", ")}` : "nothing redacted"} · risk ${item.risk?.level ?? "none"}${item.risk?.flags.length ? ` (${item.risk.flags.join(", ")})` : ""}${item.risk?.level === "suspect" ? ", held from delivery sinks except review" : ""}`,
           `grade     ${item.grade.score} by ${item.grade.grader}, profile ${item.grade.profile_hash}${history.length > 1 ? ` (history: ${history.map((g) => (g as { score: number }).score).join(" → ")})` : ""}`,
           ...item.grade.why.map((w) => `          · ${w}`),
           `route     rules ${item.rules.join(", ") || "none"} → sinks ${item.sinks.join(", ") || "none"} · priority ${item.priority}`,
@@ -337,7 +338,7 @@ async function dispatch(cfg: FeedConfig, c: RunContext) {
           }
           const i = byId.get(r.id);
           const g = i?.grade;
-          console.log(`  ${r.id.slice(0, 12)}  ${String(g?.score ?? r.score ?? "?").padStart(3)} ${g ? gradeTag(g) : "    "}  ${clip(i?.title ?? r.title ?? r.id, 70)} · ${i?.source ?? r.source ?? "?"} · queued ${r.at.slice(0, 10)}`);
+          console.log(`  ${r.id.slice(0, 12)}  ${String(g?.score ?? r.score ?? "?").padStart(3)} ${g ? gradeTag(g) : "    "}  ${clip(i?.title ?? r.title ?? r.id, 70)} · ${i?.source ?? r.source ?? "?"} · queued ${r.at.slice(0, 10)}${i?.risk?.level === "suspect" ? ` · ⚠ guard: ${i.risk.flags.join(", ")}` : ""}`);
           if (i?.url ?? r.url) console.log(`                ${i?.url ?? r.url}`);
         }
         break;
