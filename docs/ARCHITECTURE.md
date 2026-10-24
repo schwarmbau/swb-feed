@@ -57,7 +57,7 @@ The pipeline follows the shape of Daniel Miessler's published Feed design for hi
 | Route to destinations (alerts, digest, archive) | **Views vs deliveries**: a view is rebuilt from the ledger, a delivery is receipted; a **review queue** puts a person between the feed and any memory |
 | Ingest normalizes content | **Write-ahead ledger** with a guard in front: nothing is lost when a grader or sink fails, and no secret is ever written |
 | (not in the design) | **The own-voice stage**: your own conversations and notes are read for decisions, never rated as content |
-| (not in the design) | **Risk flags that only tighten**: an item the guard calls `suspect` is held from every delivery sink but a review queue (or one that sets `acceptsRisk`), views get it with its flags, and the grading prompt never sees invisible characters or the flags themselves |
+| (not in the design) | **Risk flags that only tighten**: an item the guard calls `suspect` is held from every delivery sink but a review queue (or one that sets `acceptsRisk`), views get it with its flags (a memory view leaves it out until a person approves that exact text), nothing the item says can lower its level, and the grading prompt never sees invisible characters or the flags themselves |
 
 ## Running it
 

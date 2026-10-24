@@ -40,7 +40,7 @@ export function reviewQueue(o: { approve: DeliverySink }): ReviewSink {
     async deliver(item, ctx) {
       if (ctx.dryRun) return { ref: "would queue for review", skipped: true };
       const risk = item.risk && item.risk.level !== "none" ? { risk: item.risk.flags } : {};
-      appendReview(ctx.dataDir, { id: item.id, decision: "queued", at: new Date().toISOString(), title: item.title, source: item.source, ...(item.url ? { url: item.url } : {}), score: item.grade.score, ...risk });
+      appendReview(ctx.dataDir, { id: item.id, decision: "queued", at: new Date().toISOString(), title: item.title, source: item.source, ...(item.url ? { url: item.url } : {}), score: item.grade.score, ...risk, content_hash: item.content_hash });
       return { ref: "queued for review" };
     },
   };
@@ -79,6 +79,16 @@ export function reviewRows(dataDir: string): ReviewRow[] {
     }
   }
   return rows;
+}
+
+/**
+ * Items he approved, as `<id> <content hash>`: the hash he was queued and the hash he approved must be the
+ * same text. An approval row without a hash (written before hashes existed) approves nothing here.
+ */
+export function approvedTexts(dataDir: string): Set<string> {
+  const rows = reviewRows(dataDir).filter((r) => !r.voice && r.content_hash);
+  const queued = new Set(rows.filter((r) => r.decision === "queued").map((r) => `${r.id} ${r.content_hash}`));
+  return new Set(rows.filter((r) => r.decision === "approved").map((r) => `${r.id} ${r.content_hash}`).filter((k) => queued.has(k)));
 }
 
 /** Candidates still waiting: queued and neither approved nor rejected, oldest first. */
@@ -143,7 +153,7 @@ export async function approveReview(
   if (!accepts.includes(item.privacy_class)) throw new Error(`item ${item.id} is ${item.privacy_class}; the target accepts ${accepts.join(", ")}`);
   const { ref, skipped } = await sink.review.target.deliver(item, { ...ctx, dryRun: false });
   if (skipped) throw new Error(`the target only rehearsed (${ref ?? "no ref"}); item ${item.id} stays waiting`);
-  const row: ReviewRow = { id: item.id, decision: "approved", at: new Date().toISOString(), title: item.title, ...(ref ? { ref } : {}) };
+  const row: ReviewRow = { id: item.id, decision: "approved", at: new Date().toISOString(), title: item.title, ...(ref ? { ref } : {}), content_hash: item.content_hash };
   appendReview(cfg.dataDir, row);
   return row;
 }

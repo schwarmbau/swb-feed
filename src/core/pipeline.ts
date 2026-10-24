@@ -7,13 +7,13 @@ import { join } from "node:path";
 import type { Envelope, FeedConfig, GradedItem, Grade, IntentProfile, Job, PiiConfig, PiiLabel, RawItem, RunContext, Rule, Source, SourceHealth, VoiceItem } from "./types.ts";
 import { isModelGrade, modelGrade, pool, UnreadableAnswer } from "./model.ts";
 import { Ledger } from "./ledger.ts";
-import { GUARD_FLAG, guard, riskOf } from "./guard.ts";
+import { GUARD_FLAG, guard, itemText, riskOf } from "./guard.ts";
 import { loadIntent } from "./intent.ts";
 import { gradeDeterministic } from "./grade.ts";
 import { route } from "./route.ts";
 import { normalizeUrl, sha256 } from "./text.ts";
 import { alreadyDecided as alreadyDecided_, completedVoiceItems, extractionConfidence, extractions, extractVoice, failures, markKey, markStart, mineConversations, offerOrder, recordExtraction, recordFailure, relatedPoint, samePoint, voiceChunks, voiceWindow, type ExtractionRow } from "./voice.ts";
-import { blockedIds, isReviewSink, openIntents, pendingReviews, queueVoice, reviewRows, supersedeVoice } from "../sinks/review.ts";
+import { approvedTexts, blockedIds, isReviewSink, openIntents, pendingReviews, queueVoice, reviewRows, supersedeVoice } from "../sinks/review.ts";
 
 export interface SourceReport {
   source: string;
@@ -77,7 +77,7 @@ const TIGHTEN: PiiLabel[] = ["email", "phone", "iban", "bank_account", "address"
 const PII_DEADLINE_MS = 60_000;
 
 /**
- * Runs the configured detector over an item's guarded text. Hits become `guard:pii:<label>` flags; a
+ * Runs the configured detector over every field of an item's guarded text (the fields a prompt or a view can carry). Hits become `guard:pii:<label>` flags; a
  * tightening label makes the item personal through the one-way rule in `envelopeFrom`. A detector
  * that fails or times out leaves `guard:pii:unchecked`, and the item is kept as personal: fail closed.
  */
@@ -85,8 +85,9 @@ export async function checkPii(pii: PiiConfig, raw: RawItem, e: Envelope, src: P
   let labels: string[];
   let tighten = false;
   try {
-    const hits = await withDeadline(pii.port.detect(`${e.title}\n\n${e.content}`), PII_DEADLINE_MS, `pii ${pii.port.name}`);
-    const kept = hits.filter((h) => h.score >= (pii.minScore ?? 0.5));
+    const hits = await withDeadline(pii.port.detect(itemText(e)), PII_DEADLINE_MS, `pii ${pii.port.name}`);
+    // An IBAN the secret shapes already redacted is still an IBAN: the value is gone, the item is still personal.
+    const kept = [...hits.filter((h) => h.score >= (pii.minScore ?? 0.5)), ...(e.redactions.includes("iban") ? [{ label: "iban" as const, score: 1 }] : [])];
     labels = [...new Set(kept.map((h) => h.label))].sort();
     tighten = kept.some((h) => (pii.tighten ?? TIGHTEN).includes(h.label));
   } catch {
@@ -144,10 +145,12 @@ export function ownVoiceGrade(g: Grade): Grade {
   return rest;
 }
 
-function toGraded(cfg: FeedConfig, e: Envelope, g: Grade, rules: Rule[]): GradedItem & { sinks: string[] } {
+/** `approved`: the `<id> <content hash>` pairs he approved in review (views only; a delivery still holds a suspect item). */
+function toGraded(cfg: FeedConfig, e: Envelope, g: Grade, rules: Rule[], approved?: Set<string>): GradedItem & { sinks: string[] } {
   const own = isOwnVoice(cfg, e);
   const grade = own ? ownVoiceGrade(g) : g;
-  const risk = riskOf(e);
+  const assessed = riskOf(e);
+  const risk = assessed.level === "suspect" && approved?.has(`${e.id} ${e.content_hash}`) ? { ...assessed, approved: true } : assessed;
   const r = route(rules, e, grade, risk);
   // `own_voice` tells every view this is his voice: a memory view then carries only the recorder's abstract.
   return { ...e, ...(own ? { own_voice: true } : {}), grade, risk, rules: r.rules, priority: r.priority, sinks: r.sinks };
@@ -183,10 +186,11 @@ async function deliver(cfg: FeedConfig, ledger: Ledger, items: (GradedItem & { s
 /** Every item in the ledger with its newest grade, routed by today's rules. */
 export function allGraded(cfg: FeedConfig, ledger: Ledger): (GradedItem & { sinks: string[] })[] {
   const grades = ledger.latestGrades();
+  const approved = approvedTexts(cfg.dataDir);
   const out: (GradedItem & { sinks: string[] })[] = [];
   for (const e of ledger.envelopes()) {
     const g = grades.get(e.id);
-    if (g) out.push(toGraded(cfg, e, g, rulesFor(cfg, e.source)));
+    if (g) out.push(toGraded(cfg, e, g, rulesFor(cfg, e.source), approved));
   }
   return out;
 }

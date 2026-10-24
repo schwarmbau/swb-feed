@@ -141,6 +141,8 @@ export interface ReviewRow {
   typed?: boolean;
   /** queued: the guard's flags on the item, shown to him at approval. */
   risk?: string[];
+  /** queued and approved: the item's content hash, so an approval binds to the text he saw, never to a later revision. */
+  content_hash?: string;
 }
 
 /**
@@ -154,7 +156,7 @@ export interface ModelPort {
   json(system: string, user: string): Promise<unknown>;
 }
 
-/** `suspect`: something in the item is shaped to steer a model that reads it. `note`: the item talks about such things. */
+/** `suspect`: something in the item is shaped to steer a model that reads it. `note`: a benign guard finding (personal data, a skip link, one zero-width space). */
 export type RiskLevel = "none" | "note" | "suspect";
 
 /**
@@ -165,6 +167,8 @@ export interface Risk {
   level: RiskLevel;
   /** Rule names from a fixed vocabulary (`injection:override`, `hidden:tag_chars` …), never item text. */
   flags: string[];
+  /** A suspect item he approved in review, for this exact text (the approval names its content hash). Views only. */
+  approved?: boolean;
 }
 
 /** One kind of personal data a detector found: a label from the fixed set below and its confidence (0–1). Never the value. */

@@ -12,9 +12,13 @@ export interface PiiSpan {
 }
 
 const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/gi;
+// Spelled out against harvesters: "jana (at) mail-test (dot) de", "jana [at] mail-test.de".
+const EMAIL_SPELLED = /[\w.+-]+\s*[([{]\s*(?:at|ät|@)\s*[)\]}]\s*[\w-]+(?:\s*(?:[([{]\s*(?:dot|punkt)\s*[)\]}]|\.)\s*[\w-]+)+/gi;
 // A leading + or 0 and 8–15 digits in groups: "0391 5550123", "+49 (0)30 1234567", "+44 20 7946 0958".
+// Dotted groups of three or more digits ("0151.2345.6789"); a date has a two-digit group, so it never matches.
+const PHONE_DOTTED = /(?<![\w.,/-])(?:\+\d{1,3}\.?)?0?\d{2,5}(?:\.\d{3,}){2,}(?![\w/-]|[.,]\d)/g;
 const PHONE = /(?<![\w.,/-])(?:\+\d{1,3}[ /-]?(?:\(0\)[ ]?)?\d{1,5}|\(?0\d{2,5}\)?)(?:[ /-]?\d{2,}){1,5}(?![\w/-]|[.,]\d)/g;
-const IBAN = /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\b/g;
+const IBAN = /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\b/gi;
 const STREET =
   /\b[A-ZÄÖÜ][\wäöüß.-]*(?:straße|strasse|str\.|weg|allee|platz|gasse|ring|damm|ufer|chaussee|steig|pfad|markt)\s+\d{1,4}\s?[a-z]?\b|\b\d{1,5}\s+(?:[A-Z][a-z]+\s){1,3}(?:Street|St\.|Road|Rd\.|Avenue|Ave\.|Lane|Ln\.|Drive|Way|Close|Court|Place|Square|Boulevard|Blvd\.|Terrace|Gardens)\b/g;
 const POSTCODE = /(?<=,\s*)\d{5}\s+[A-ZÄÖÜ][a-zäöüß]+|\b[A-Z]{1,2}\d[A-Z\d]? \d[A-Z]{2}\b/g;
@@ -25,8 +29,9 @@ const BIRTH = new RegExp(`\\b(?:geb\\.|geboren(?: am)?|born(?: on)?|date of birt
 const ID_NUMBER =
   /\b(?:steuer-?id|steuer-?identifikationsnummer|steuernummer|(?:personal)?ausweis(?:nummer)?|reisepass(?:nummer)?|sozialversicherungsnummer|versichertennummer|krankenversicherungsnummer|pflegekassennummer|kindergeldnummer|führerschein(?:nummer)?|passport(?: number| no\.?)?|ssn|social security(?: number)?|tax id|utr|national insurance(?: number)?|ni number|nhs number|insurance id|patient number|driving licen[cs]e(?: number)?|licen[cs]e number)\b(?: for \w+| des \w+| \w+s)?\W{0,4}(?:ist |is |:)?\s*[A-Z0-9][A-Z0-9 /-]{4,18}[A-Z0-9]/gi;
 
-function ibanValid(s: string): boolean {
-  const v = s.replace(/ /g, "");
+/** The ISO 13616 mod-97 check, case-insensitive. */
+export function ibanValid(s: string): boolean {
+  const v = s.replace(/ /g, "").toUpperCase();
   if (v.length < 15 || v.length > 34) return false;
   const moved = (v.slice(4) + v.slice(0, 4)).replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
   let rest = 0;
@@ -40,11 +45,13 @@ export function contactSpans(text: string): PiiSpan[] {
     for (const m of text.matchAll(re)) if (ok(m[0])) out.push({ label, start: m.index!, end: m.index! + m[0].length, score: 1 });
   };
   add(EMAIL, "email");
+  add(EMAIL_SPELLED, "email");
   add(IBAN, "iban", ibanValid);
   add(PHONE, "phone", (m) => {
     const digits = m.replace(/\D/g, "").length;
     return digits >= 8 && digits <= 15;
   });
+  add(PHONE_DOTTED, "phone", (m) => m.replace(/\D/g, "").length <= 15);
   add(STREET, "address");
   add(POSTCODE, "address");
   add(BIRTH, "date_of_birth");

@@ -96,12 +96,33 @@ export function tokens(text: string): string[] {
 // leaves it out of the content, and `hiddenHtmlFlags` says what was left out, so the guard can
 // flag an item whose page hid something from its reader.
 const VOID = new Set(["img", "input", "br", "hr", "meta", "link", "source", "embed"]);
-const HIDDEN_STYLE =
-  /display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*(?:0|[01](?:\.\d+)?px)\b|opacity\s*:\s*0(?:\.0+)?(?![.\d])|(?:left|top|text-indent|margin-left)\s*:\s*-\d{3,}px|clip\s*:\s*rect\(\s*0|(?:max-)?height\s*:\s*0(?:px)?\s*;[^"']*overflow\s*:\s*hidden|color\s*:\s*(?:#fff(?:fff)?|white)\b[^"']*background(?:-color)?\s*:\s*(?:#fff(?:fff)?|white)\b|background(?:-color)?\s*:\s*(?:#fff(?:fff)?|white)\b[^"']*[^-]color\s*:\s*(?:#fff(?:fff)?|white)\b/i;
+// Each line one way a style hides text; the limits keep ordinary layout out (a hanging indent of -1.5em,
+// a transparent border colour, a decorative circular clip).
+const WHITE = String.raw`(?:#fff(?:fff)?|white)\b`;
+const HIDDEN_STYLE = new RegExp(
+  [
+    String.raw`display\s*:\s*none`,
+    String.raw`visibility\s*:\s*(?:hidden|collapse)`,
+    String.raw`font-size\s*:\s*(?:0(?:\.0+)?(?:[a-z%]+)?(?![\d.])|[01](?:\.\d+)?px\b)`,
+    String.raw`opacity\s*:\s*0(?:\.0+)?(?![.\d])`,
+    String.raw`(?:left|right|top|text-indent|margin-left|margin-top)\s*:\s*-(?:\d{3,}(?:\.\d+)?(?:px)?|\d{2,}(?:\.\d+)?r?em|\d{3,}(?:\.\d+)?(?:vw|vh|%))(?![\w.])`,
+    String.raw`(?<![\w-])clip\s*:\s*rect\(\s*0`,
+    String.raw`clip-path\s*:\s*inset\(\s*(?:[5-9]\d|100)(?:\.\d+)?%`,
+    String.raw`transform\s*:[^;"']*\bscale[xy]?\(\s*0(?:\.0+)?\s*[,)]`,
+    String.raw`(?:max-)?(?:height|width)\s*:\s*0(?:px|em|rem|%)?\s*(?:!important\s*)?(?:;|$|["'])[^"']*overflow\s*:\s*hidden`,
+    String.raw`overflow\s*:\s*hidden[^"']*[;\s"'](?:max-)?(?:height|width)\s*:\s*0(?:px|em|rem|%)?\s*(?:!important\s*)?(?:;|$|["'])`,
+    String.raw`(?<![\w-])color\s*:\s*(?:transparent|rgba\([^)]*,\s*0(?:\.0+)?\s*\))`,
+    `color\\s*:\\s*${WHITE}[^"']*background(?:-color)?\\s*:\\s*${WHITE}`,
+    `background(?:-color)?\\s*:\\s*${WHITE}[^"']*[^-]color\\s*:\\s*${WHITE}`,
+  ].join("|"),
+  "i",
+);
 
-export type HiddenKind = "css" | "attribute" | "aria" | "class" | "comment";
+export type HiddenKind = "css" | "attribute" | "aria" | "class" | "comment" | "template";
 
-function hiddenKind(attrs: string): HiddenKind | undefined {
+function hiddenKind(attrs: string, tag: string): HiddenKind | undefined {
+  // A template is parsed and never rendered.
+  if (tag.toLowerCase() === "template") return "template";
   const style = /\bstyle\s*=\s*("[^"]*"|'[^']*')/i.exec(attrs)?.[1] ?? "";
   if (HIDDEN_STYLE.test(style)) return "css";
   if (/(?:^|\s)hidden(?:\s|=|$)/i.test(attrs)) return "attribute";
@@ -119,7 +140,7 @@ export function splitHidden(html: string): { visible: string; hidden: { kind: Hi
   });
   const open = /<([a-z][a-z0-9]*)\b([^>]*)>/gi;
   for (let m = open.exec(s); m; m = open.exec(s)) {
-    const kind = hiddenKind(m[2]);
+    const kind = hiddenKind(m[2], m[1]);
     if (!kind) continue;
     const tag = m[1].toLowerCase();
     let end = open.lastIndex;

@@ -1,6 +1,6 @@
 {
   "note": "Exported from the maintainer's upstream engine; change upstream, not these files (see CONTRIBUTING.md).",
-  "upstream_sha": "a0d72387",
+  "upstream_sha": "48555ff0",
   "files": [
     {
       "path": "src/contracts/feed-item.ts",
@@ -8,7 +8,7 @@
     },
     {
       "path": "src/contracts/ledger.ts",
-      "sha256": "a6d885c740ed4da88578a2bb3232b137ca0e43ca294bc346cd4cfa4a21cdfa01"
+      "sha256": "6fdf668d1cbc5c1a049ea18634513bfea0a5777bbb392ea35e0c587f81d67dc1"
     },
     {
       "path": "src/core/types.ts",
@@ -16,15 +16,19 @@
     },
     {
       "path": "src/core/guard.ts",
-      "sha256": "6bf795adc744ab346b6ab6d4b1e81626f234aaa8e3bd1fd3fae65188f2ac7514"
+      "sha256": "df8d09fab50bee619830e1f46f78bc774b0cc31b86a765e4ee13e4abdeac336f"
     },
     {
       "path": "src/core/pii.ts",
-      "sha256": "30458fad07591d28f930020e1006fe692a6b644f07d53112ced0d539dba62f65"
+      "sha256": "7225f01be9c26b2014b663f95368f4b38fc24bfd1c212200b24994f110ca3291"
     },
     {
       "path": "test/guard.test.ts",
-      "sha256": "acfec0968e8060cb4f8be4efdc53472ef5579553f17ac7cb86d6d2ae974fadf1"
+      "sha256": "98b6930a18694f4bb7effd7ad6e6acf2c68fd35d0a72ef4900d4f093a7141e90"
+    },
+    {
+      "path": "test/guard-audit.test.ts",
+      "sha256": "206f61fddd49e0c542d90392cef91c6d5b4d9baf4e24d1b74f232acc6657c90d"
     },
     {
       "path": "adapters/pii-openmed/index.ts",
@@ -44,7 +48,7 @@
     },
     {
       "path": "src/core/text.ts",
-      "sha256": "0937184e768c5945cffa915cfed5ccbbcd6e52ff08a4c051774fb1933eb54fcd"
+      "sha256": "b4745efd0a7327f6262e2a0a201de0d556419c3752175195583d25235ec0271e"
     },
     {
       "path": "src/core/ledger.ts",
@@ -68,7 +72,7 @@
     },
     {
       "path": "src/core/pipeline.ts",
-      "sha256": "84d43df2dc9eb2ae2a09ce467750dcfb04ac61c400a95999fbf6acc5a83973b7"
+      "sha256": "d6fa2b09d412be7330389c524e3da6d9891b9972de14b5578e28f8f5ae4a7f95"
     },
     {
       "path": "src/core/cli.ts",
@@ -112,7 +116,7 @@
     },
     {
       "path": "src/sinks/review.ts",
-      "sha256": "639d204c7d9b5fd1a4809233cb81f0ecc54754c7fa9597610750c1433b25e696"
+      "sha256": "64aab8aa35fef9b7d636d6ea2d1449db777bbf612c04a04c09e28d930ebda835"
     },
     {
       "path": "src/sinks/voice.ts",
