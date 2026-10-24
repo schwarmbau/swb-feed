@@ -1,6 +1,6 @@
 {
   "note": "Exported from the maintainer's upstream engine; change upstream, not these files (see CONTRIBUTING.md).",
-  "upstream_sha": "48555ff0",
+  "upstream_sha": "6095047d",
   "files": [
     {
       "path": "src/contracts/feed-item.ts",
@@ -28,7 +28,7 @@
     },
     {
       "path": "test/guard-audit.test.ts",
-      "sha256": "206f61fddd49e0c542d90392cef91c6d5b4d9baf4e24d1b74f232acc6657c90d"
+      "sha256": "11058301f9a54a02975f9294698ddb9de0e72f5b122066b197b45c40dbe05001"
     },
     {
       "path": "adapters/pii-openmed/index.ts",
