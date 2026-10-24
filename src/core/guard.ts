@@ -144,13 +144,38 @@ export const stripInvisible = (s: string) => s.replace(INVISIBLE, "");
  * approved shows its own words only fenced and marked, the way the wiki banner names it; its author,
  * link and model summary are for the surface to leave out.
  */
-export function shownTitle(title: string, risk?: Risk, max = 90): string {
+export function shownTitle(title: string, risk?: Risk, max = 90, escape: "markdown" | "none" = "markdown"): string {
   if (risk?.level !== "suspect" || risk.approved) return clip(title, max);
-  return `⚠ held (${risk.flags.join(", ")}), untrusted: «${clip(stripInvisible(title).replace(/[«»\s]+/g, " ").trim(), max)}»`;
+  // An HTML surface escapes on its own: it asks for the bare words, so nothing is escaped twice (pass 7, cosmetic).
+  if (escape === "none") return `⚠ held (${risk.flags.join(", ")}), untrusted: «${clip(stripInvisible(title).replace(/[«»\s]+/g, " ").trim(), max)}»`;
+  // Inert on every surface: no Markdown link, image, emphasis or HTML can render from it (audit pass 6, item 1).
+  const words = clip(stripInvisible(title).replace(/[«»\s]+/g, " ").trim(), max).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/([\\`*_[\]()!#|~])/g, "\\$1");
+  return `⚠ held (${risk.flags.join(", ")}), untrusted: «${words}»`;
 }
 
 /** A suspect item he has not approved: surfaces show it fenced, memory holds nothing of it. */
 export const isHeld = (risk?: Risk) => risk?.level === "suspect" && !risk.approved;
+
+type Displayable = { title: string; url?: string; author?: string; abstract?: string; flags?: string[]; content_kind: string; risk?: Risk; grade?: { summary_short: string; why: string[] } };
+
+/**
+ * The one way a surface gets an item to show (audit pass 3: every renderer deciding on its own let
+ * each pass find another raw path). A held item comes back fenced: its title marked, and every other field
+ * an attacker could have written (link, author, abstract, flags, kind, the model's summary and reasons)
+ * replaced by the guard's own words. Anything else is returned as it is.
+ */
+export function displayItem<T extends Displayable>(i: T, max = 200): T {
+  if (!isHeld(i.risk)) return i;
+  const flags = i.risk!.flags.join(", ");
+  const { url: _u, author: _a, abstract: _b, ...rest } = i;
+  return {
+    ...(rest as T),
+    title: shownTitle(i.title, i.risk, max),
+    flags: [],
+    content_kind: "held",
+    ...(i.grade ? { grade: { ...i.grade, summary_short: "held by the guard: summary withheld until approved", why: [`held by the guard (${flags})`] } } : {}),
+  };
+}
 
 /** Text a reader sees normally hides nothing; these do. */
 export function invisibleFlags(text: string): string[] {

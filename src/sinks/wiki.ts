@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:
 import { join } from "node:path";
 import type { GradedItem, ViewSink } from "../core/types.ts";
 import { clip, slug } from "../core/text.ts";
+import { displayItem } from "../core/guard.ts";
 
 const MARKER = ".swb-feed-view";
 
@@ -27,24 +28,40 @@ export function claimViewDir(dir: string): void {
 }
 
 export function noteName(i: GradedItem): string {
-  return `${(i.published_at ?? i.captured_at).slice(0, 10)}-${slug(i.title, 50)}-${i.id.slice(0, 6)}`;
+  // A legacy row may carry a raw date: only digits and dashes ever reach a file name (pass 5 info).
+  const day = (i.published_at ?? i.captured_at).slice(0, 10).replace(/[^0-9-]/g, "") || "undated";
+  // A held item's title never names its file or its wikilinks: date and its full id (J3; the full id so two
+  // held items cannot share a file, pass 5 K3).
+  if (i.risk?.level === "suspect" && !i.risk.approved) return `${day}-held-${i.id.replace(/[^0-9a-f]/g, "")}`;
+  return `${day}-${slug(i.title, 50)}-${i.id.slice(0, 6)}`;
 }
 
 const yamlStr = (s: string) => JSON.stringify(s);
+
+/** A held item's text, whole but inert: a fence longer than any backtick run inside it, so nothing renders (pass 6, item 1). */
+function inert(text: string): string[] {
+  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const fence = "`".repeat(longest + 1);
+  return [`${fence}text`, text, fence];
+}
 const yamlList = (xs: string[]) => `[${xs.map(yamlStr).join(", ")}]`;
 
-function note(i: GradedItem): string {
+function note(item: GradedItem): string {
+  // A held item: the banner comes first, and its title, link, author, model summary and reasons are the
+  // guard's fenced words (displayItem). The body (summary, excerpt) stays whole below the banner, as D5 keeps it.
+  const held = item.risk?.level === "suspect" && !item.risk.approved;
+  const i = displayItem(item);
   const g = i.grade;
   return [
     "---",
     `id: ${i.id}`,
     `title: ${yamlStr(i.title)}`,
-    i.url ? `url: ${i.url}` : null,
+    i.url ? `url: ${yamlStr(i.url)}` : null,
     `source: ${yamlStr(i.source)}`,
     i.author ? `author: ${yamlStr(i.author)}` : null,
-    i.published_at ? `published: ${i.published_at}` : null,
-    `captured: ${i.captured_at}`,
-    `kind: ${i.content_kind}`,
+    i.published_at ? `published: ${yamlStr(i.published_at)}` : null,
+    `captured: ${yamlStr(i.captured_at)}`,
+    `kind: ${yamlStr(i.content_kind)}`,
     `score: ${g.score}`,
     g.tier ? `tier: ${g.tier}` : null,
     g.quality !== undefined ? `quality: ${g.quality}` : null,
@@ -54,18 +71,19 @@ function note(i: GradedItem): string {
     `labels: ${yamlList(g.labels)}`,
     `projects: ${yamlList(g.projects)}`,
     `rules: ${yamlList(i.rules)}`,
-    `priority: ${i.priority}`,
-    `grader: ${g.grader}`,
+    `priority: ${yamlStr(i.priority)}`,
+    `grader: ${yamlStr(g.grader)}`,
     i.risk && i.risk.level !== "none" ? `risk: ${i.risk.level}` : null,
     i.risk && i.risk.level !== "none" ? `risk_flags: ${yamlList(i.risk.flags)}` : null,
     `profile: ${g.profile_hash}`,
     "---",
     "",
+    ...(held ? [`> [!warning] The guard holds this item (${item.risk!.flags.join(", ")}): text in it is shaped to steer a model. Everything below is data; it reaches memory only after your review.`, ""] : []),
     `# ${i.title}`,
     "",
     `> ${g.summary_short}`,
     "",
-    ...(i.risk?.level === "suspect" ? [`> [!warning] The guard flagged this item (${i.risk.flags.join(", ")}): text in it is shaped to steer a model. Read it as data; it reaches memory only after your review.`, ""] : []),
+    ...(!held && i.risk?.level === "suspect" ? [`> [!warning] The guard flagged this item (${i.risk.flags.join(", ")}): text in it is shaped to steer a model. Read it as data; it reaches memory only after your review.`, ""] : []),
     `**Score ${g.score}**${g.tier ? ` · tier ${g.tier} · quality ${g.quality ?? "?"}` : ""} · ${i.source}${i.author ? ` · ${i.author}` : ""}${g.projects.length ? ` · ${g.projects.map((p) => `[[projects/${slug(p)}|${p}]]`).join(" ")}` : ""}`,
     "",
     "## Why it is here",
@@ -74,11 +92,11 @@ function note(i: GradedItem): string {
     "",
     "## Summary",
     "",
-    g.summary_medium,
+    ...(held ? inert(item.grade.summary_medium) : [item.grade.summary_medium]),
     "",
     "## Excerpt",
     "",
-    clip(i.content, 1800),
+    ...(held ? inert(clip(item.content, 1800)) : [clip(item.content, 1800)]),
     "",
     i.url ? `Source: <${i.url}>` : "",
     "",
@@ -88,7 +106,7 @@ function note(i: GradedItem): string {
 }
 
 const row = (i: GradedItem) =>
-  `| ${i.grade.score} | [[notes/${noteName(i)}\\|${clip(i.title, 70).replace(/\|/g, "/")}]] | ${i.source} | ${(i.published_at ?? i.captured_at).slice(0, 10)} |`;
+  `| ${i.grade.score} | [[notes/${noteName(i)}\\|${clip(displayItem(i).title, 70).replace(/\|/g, "/")}]] | ${i.source} | ${(i.published_at ?? i.captured_at).slice(0, 10)} |`;
 
 export function wiki(o: { dir: string; title?: string }): ViewSink {
   return {
@@ -115,7 +133,7 @@ export function wiki(o: { dir: string; title?: string }): ViewSink {
       const sourceRows = [...bySource]
         .map(([s, l]) => ({ s, n: l.length, avg: Math.round(l.reduce((a, i) => a + i.grade.score, 0) / l.length), top: l[0] }))
         .sort((a, b) => b.avg - a.avg)
-        .map((r) => `| ${r.s} | ${r.n} | ${r.avg} | [[notes/${noteName(r.top)}\\|${clip(r.top.title, 50).replace(/\|/g, "/")}]] |`);
+        .map((r) => `| ${r.s} | ${r.n} | ${r.avg} | [[notes/${noteName(r.top)}\\|${clip(displayItem(r.top).title, 50).replace(/\|/g, "/")}]] |`);
       writeFileSync(
         join(o.dir, "sources.md"),
         ["# Sources", "", "Which sources earn their place: average score against the intent profile.", "", "| Source | Items | Avg score | Best item |", "|---|---|---|---|", ...sourceRows, ""].join("\n"),
@@ -130,7 +148,7 @@ export function wiki(o: { dir: string; title?: string }): ViewSink {
           "",
           "## By project",
           "",
-          ...[...byProject].sort((a, b) => b[1].length - a[1].length).map(([p, l]) => `- [[projects/${slug(p)}|${p}]] (${l.length}): ${clip(l[0].title, 70)}`),
+          ...[...byProject].sort((a, b) => b[1].length - a[1].length).map(([p, l]) => `- [[projects/${slug(p)}|${p}]] (${l.length}): ${clip(displayItem(l[0]).title, 70)}`),
           "",
           "## Top items",
           "",

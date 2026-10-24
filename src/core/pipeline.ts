@@ -35,6 +35,21 @@ export interface RunReport {
   voice?: { port: string; extracted: number; queued: number; unoffered: number; already_decided: number; withdrawn: number; calls: number; failed: number; waiting: number; parked: number; warnings: number; error?: string };
 }
 
+/** A web link with no whitespace, or undefined: a url becomes a link, a frontmatter line and a prompt line (pass 5, K1). */
+export function webUrl(v: unknown): string | undefined {
+  return typeof v === "string" && /^https?:\/\/[^\s"<>]+$/i.test(v.trim()) ? v.trim() : undefined;
+}
+
+/** A content kind is a short lowercase word, or "note" (pass 5, K1). */
+export const contentKind = (v: unknown): string => (typeof v === "string" && /^[a-z_-]{1,20}$/.test(v) ? v : "note");
+
+/** A real date as ISO 8601, or undefined: never a source's raw string. */
+export function isoDate(v: unknown): string | undefined {
+  if (typeof v !== "string" || !v.trim()) return undefined;
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? new Date(t).toISOString() : undefined;
+}
+
 const RAW_FIELDS = ["external_id", "url", "title", "author", "content", "abstract", "content_kind", "published_at"] as const;
 
 /** Only known fields survive, and every string among them passes the guard before anything is written. */
@@ -53,13 +68,15 @@ export function envelopeFrom(raw: RawItem, src: Pick<Source, "name" | "trust" | 
   const privacy = src.privacy_class === "personal" || raw.privacy_class === "personal" ? "personal" : "public";
   return {
     external_id: clean.external_id ?? "",
-    url: clean.url,
+    url: webUrl(clean.url),
     title: clean.title ?? "(untitled)",
     author: clean.author,
     content: clean.content ?? "",
     ...(clean.abstract ? { abstract: clean.abstract } : {}),
-    content_kind: clean.content_kind ?? "note",
-    published_at: clean.published_at,
+    content_kind: contentKind(clean.content_kind),
+    // A date or nothing: a source-written string becomes a file name and a frontmatter line downstream,
+    // so only a value that parses as a date is kept, stored as ISO (audit pass 4, J1 and J2).
+    published_at: isoDate(clean.published_at),
     id: identityOf(clean.url, clean.external_id ?? "", src.name),
     source: src.name,
     trust: src.trust,

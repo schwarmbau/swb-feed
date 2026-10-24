@@ -111,7 +111,8 @@ export function writeDigest(cfg: FeedConfig, opts: { dir: string; now?: Date; ho
           "",
           ...sick.map(([n, h]) => `- **${n}** failing ${h.consecutive_failures}×${h.consecutive_failures >= 5 ? " (circuit open, retried every 6 h)" : ""} since ${h.last_ok?.slice(0, 16) ?? "never"}: ${h.last_error ?? ""}`),
           ...demoted.map(([n, h]) => `- **${n}** demoted ${h.demoted_at!.slice(0, 10)}: ${h.demoted_reason ?? ""} (lift: \`source reset "${n}"\`)`),
-          ...flagged.map((i) => `- ${titleOf(i)} (${i.source}): ${[...(i.flags ?? []), ...(i.risk?.level === "suspect" ? [`guard suspect: ${i.risk.flags.join(", ")}`] : [])].join("; ")}`),
+          // A held item's own flags are attacker-settable text: only the guard's vocabulary is shown for it (audit pass 2, G2).
+          ...flagged.map((i) => `- ${titleOf(i)} (${i.source}): ${[...(isHeld(i.risk) ? [] : (i.flags ?? []).map((f) => clip(f, 120))), ...(i.risk?.level === "suspect" ? [`guard suspect: ${i.risk.flags.join(", ")}`] : [])].join("; ")}`),
           ...parked.map(([item, f]) => `- ${titleOf(byId.get(item)) ?? item}: own-voice reading failed ${f.length}×, parked (last: ${clip(f[f.length - 1]!.error, 120)}); try again: \`swb-feed voice reset ${item}\``),
           ...warned.map((x) => `- ${titleOf(byId.get(x.item)) ?? x.item}: text that tried to instruct the extractor (${clip(x.warnings!.join("; "), 160)})`),
           ...failedDeliveries.slice(0, 10).map((d) => `- delivery to ${d.sink} failed for ${titleOf(byId.get(d.id)) ?? d.id}: ${clip(d.error ?? "", 120)}`),
@@ -126,7 +127,7 @@ export function writeDigest(cfg: FeedConfig, opts: { dir: string; now?: Date; ho
           "",
           ...waiting.filter((r) => !r.voice).map((r) => {
             const i = byId.get(r.id);
-            return `- \`${r.id.slice(0, 12)}\` ${i ? line(i).slice(2) : `**${r.score ?? "?"}** ${clip(r.title ?? r.id, 90)} · ${r.source ?? "?"}`}`;
+            return `- \`${r.id.slice(0, 12)}\` ${i ? line(i).slice(2) : `**${r.score ?? "?"}** untrusted: «${clip(r.title ?? r.id, 90)}» (not in the ledger) · ${r.source ?? "?"}`}`;
           }),
           ...voiceGroups(waiting, byId),
           ...(unoffered ? ["", `${unoffered} more candidates from your voice are recorded and will be offered ${cfg.voice?.maxNewPerRun ?? 10} per run, most useful first.`] : []),
@@ -137,7 +138,7 @@ export function writeDigest(cfg: FeedConfig, opts: { dir: string; now?: Date; ho
       ? [`## Withdrawn from your queue: ${withdrawn.length}`, "", ...[...withdrawnBy].map(([why, n]) => `- ${n} because ${why}; a new reading's candidates take their place once it is read`), ""]
       : []),
     ...(delivered.length
-      ? ["## Handed to memory", "", ...delivered.map((d) => `- ${titleOf(byId.get(d.id)) ?? ("title" in d ? d.title : undefined) ?? d.id} → ${d.sink}${d.ref ? ` (${d.ref})` : ""}`), ""]
+      ? ["## Handed to memory", "", ...delivered.map((d) => `- ${titleOf(byId.get(d.id)) ?? ("title" in d && d.title ? `untrusted: «${clip(String(d.title), 90)}»` : undefined) ?? d.id} → ${d.sink}${d.ref ? ` (${d.ref})` : ""}`), ""]
       : []),
     "## By project",
     "",

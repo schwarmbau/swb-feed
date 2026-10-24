@@ -125,7 +125,8 @@ describe("model answer validation", () => {
   test("the prompt carries the owner context (personal ports only), the taxonomy and the fenced item", () => {
     const p = gradePrompt(e, profile, { ...cfg, port: fakePort(() => ({}), true), context: "## Missions\nBuild sovereign AI." });
     expect(p).toContain("Build sovereign AI.");
-    expect(p).toMatch(/<<<ITEM \(untrusted\)\nTITLE: Second brain note 1/);
+    // Every source-written field sits inside the fence (audit pass 5, K2).
+    expect(p).toMatch(/<<<ITEM \(untrusted\)\nABOUT: [^\n]*\n(URL: [^\n]*\n)?TITLE: Second brain note 1/);
     expect(gradePrompt(e, profile, { ...cfg, context: "## Missions\nBuild sovereign AI." })).not.toContain("Build sovereign AI.");
     expect(p).toContain("Agent memory, Security");
     expect(p).toContain("Second brain note 1");

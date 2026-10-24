@@ -5,10 +5,13 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { GradedItem, ViewSink } from "../core/types.ts";
 import { clip } from "../core/text.ts";
+import { displayItem, isHeld, shownTitle } from "../core/guard.ts";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-function card(i: GradedItem): string {
+function card(item: GradedItem): string {
+  // A held item renders fenced, with no link, author or model text; its title is HTML-escaped once, by esc() below.
+  const i = isHeld(item.risk) ? { ...displayItem(item), title: shownTitle(item.title, item.risk, 200, "none") } : item;
   const g = i.grade;
   const tags = [...g.projects.map((p) => `<span class="p" data-p="${esc(p)}">${esc(p)}</span>`), ...g.labels.map((l) => `<span class="l">${esc(l)}</span>`)].join("");
   // Only web links become links: a feed can carry any scheme, javascript: included.

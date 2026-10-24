@@ -9,7 +9,7 @@ import { acquireLock, identityOf, ingest, withDeadline, PULL_DEADLINE_MS, regrad
 import { isModelGrade } from "./model.ts";
 import { Ledger, skippedRows, unversioned } from "./ledger.ts";
 import { clip } from "./text.ts";
-import { isHeld, shownTitle } from "./guard.ts";
+import { displayItem, isHeld, riskOf, shownTitle } from "./guard.ts";
 import { approveReview, pendingReviews, previewVoice, rejectReview, restoreVoice, reviewRows, triageVoice, withdrawPending, type ReviewRow } from "../sinks/review.ts";
 import { extractedAt, extractions, failures, markBackfill, markKey, markMine, MAX_WAITING, mineConversations, OFFER_ORDER, offerOrder, proposeProject, resetVoice, voiceItems, voiceWindow } from "./voice.ts";
 import type { IntentProfile, VoiceItem } from "./types.ts";
@@ -104,7 +104,7 @@ function printReport(name: string, r: RunReport) {
   if (r.fresh.length) {
     err(`\n  ${r.fresh.length} new items, best first:`);
     for (const i of [...r.fresh].sort((a, b) => b.grade.score - a.grade.score).slice(0, 8)) {
-      err(`  ${String(i.grade.score).padStart(3)} ${gradeTag(i.grade)}  ${clip(i.title, 60).padEnd(62)} ${i.grade.projects.join(", ")}`);
+      err(`  ${String(i.grade.score).padStart(3)} ${gradeTag(i.grade)}  ${shownTitle(i.title, i.risk, 60).padEnd(62)} ${i.grade.projects.join(", ")}`); // G3
     }
   }
   if (r.model) {
@@ -313,19 +313,19 @@ async function dispatch(cfg: FeedConfig, c: RunContext) {
       const decided = new Map(reviewRows(cfg.dataDir).filter((r) => r.decision !== "queued").map((r) => [r.id, r.decision]));
       console.log(
         [
-          `${item.title}`,
-          `  id ${item.id} · ${item.source} · ${item.content_kind} · ${item.privacy_class} · trust ${item.trust}`,
-          item.url ? `  ${item.url}` : "",
+          shownTitle(item.title, item.risk, 200), // G3: explain fences a held item too
+          `  id ${item.id} · ${item.source} · ${isHeld(item.risk) ? "held" : item.content_kind} · ${item.privacy_class} · trust ${item.trust}`,
+          item.url && !isHeld(item.risk) ? `  ${item.url}` : "",
           `\ncaptured  ${item.captured_at} · content ${item.content.length} chars · sha256 ${item.content_hash.slice(0, 12)}`,
           `guard     ${item.redactions.length ? `redacted ${item.redactions.join(", ")}` : "nothing redacted"} · risk ${item.risk?.level ?? "none"}${item.risk?.flags.length ? ` (${item.risk.flags.join(", ")})` : ""}${item.risk?.level === "suspect" ? ", held from delivery sinks except review" : ""}`,
           `grade     ${item.grade.score} by ${item.grade.grader}, profile ${item.grade.profile_hash}${history.length > 1 ? ` (history: ${history.map((g) => (g as { score: number }).score).join(" → ")})` : ""}`,
-          ...item.grade.why.map((w) => `          · ${w}`),
+          ...displayItem(item).grade.why.map((w) => `          · ${w}`), // a held item's model reasons are the guard's words (pass 3, H3)
           `route     rules ${item.rules.join(", ") || "none"} → sinks ${item.sinks.join(", ") || "none"} · priority ${item.priority}`,
           `deliver   ${deliveries.length ? deliveries.map((d) => `${d.sink} ${d.ok ? "ok" : `failed: ${d.error}`} ${d.at}`).join("; ") : "no deliveries"}`,
           reviews.length ? `review    ${reviews.map((r) => `${r.decision} ${r.at}${r.ref ? ` → ${r.ref}` : ""}`).join("; ")}` : "",
           voice.length ? `voice     ${voice.length} candidates (${extractedAt(cfg.dataDir).has(item.id) ? "read" : "partly read"}), extraction confidence ${item.grade.extraction_confidence ?? "?"}` : "",
-          ...voice.map((v) => `          · ${v.id.slice(0, 12)} ${v.kind} ${v.at ?? "?"} ${v.project ?? "no project yet"} · ${decided.get(v.id) ?? "waiting"} · ${clip(v.text, 90)}`),
-          ...(extraction?.warnings ?? []).map((w) => `          ⚠ ${w}`),
+          ...voice.map((v) => `          · ${v.id.slice(0, 12)} ${v.kind} ${v.at ?? "?"} ${v.project ?? "no project yet"} · ${decided.get(v.id) ?? "waiting"} · ${isHeld(item.risk) ? "(from a held item: text withheld)" : clip(v.text, 90)}`),
+          ...(extraction?.warnings ?? []).map((w) => `          ⚠ ${isHeld(item.risk) ? "(held item: warning text withheld)" : w}`),
         ]
           .filter(Boolean)
           .join("\n"),
@@ -413,7 +413,10 @@ async function dispatch(cfg: FeedConfig, c: RunContext) {
         const r = pendingReviews(cfg.dataDir).find((x) => x.id.startsWith(id) && id.length >= 4);
         if (!r) throw new Error(`no waiting item starts with "${id}"`);
         if (!r.voice) {
-          console.log(`${r.title ?? r.id}\n${r.url ?? ""}`);
+          // The same fence as review list: a held item's words only marked, its link left out (audit pass 2, G1).
+          const i = allGraded(cfg, new Ledger(cfg.dataDir)).find((x) => x.id === r.id);
+          console.log(shownTitle(i?.title ?? r.title ?? r.id, i?.risk, 200));
+          if ((i?.url ?? r.url) && !isHeld(i?.risk)) console.log(i?.url ?? r.url);
           break;
         }
         // Exactly what `review approve` with the same flags appends, and where.
@@ -459,13 +462,13 @@ async function dispatch(cfg: FeedConfig, c: RunContext) {
         const e = hits[0]!;
         const marked = mineConversations(cfg.dataDir).has(markKey(e.source, id));
         if (marked === (sub === "mine")) {
-          console.log(`${e.source} "${e.title}": ${marked ? "already marked as all his" : "not marked"}; nothing changed`);
+          console.log(`${e.source} "${shownTitle(e.title, riskOf(e), 120)}": ${marked ? "already marked as all his" : "not marked"}; nothing changed`);
           break;
         }
         markMine(cfg.dataDir, e.source, id, sub === "mine");
         const reason = sub === "mine" ? "his conversation mark was set" : "his conversation mark was removed";
         const withdrawn = withdrawPending(cfg.dataDir, e.id, reason);
-        console.log(`${e.source} "${e.title}" (${e.published_at?.slice(0, 10) ?? "?"}): ${sub === "mine" ? "every turn counts as his" : "speaker labels count again"}; read again on the next run${withdrawn ? `, ${withdrawn} waiting candidates withdrawn` : ""}`);
+        console.log(`${e.source} "${shownTitle(e.title, riskOf(e), 120)}" (${e.published_at?.slice(0, 10) ?? "?"}): ${sub === "mine" ? "every turn counts as his" : "speaker labels count again"}; read again on the next run${withdrawn ? `, ${withdrawn} waiting candidates withdrawn` : ""}`);
       } else if (sub === "reset" && id) {
         resetVoice(cfg.dataDir, id);
         console.log(`${id} is tried again on the next run`);

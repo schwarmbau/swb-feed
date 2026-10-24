@@ -1,6 +1,6 @@
 {
   "note": "Exported from the maintainer's upstream engine; change upstream, not these files (see CONTRIBUTING.md).",
-  "upstream_sha": "f06d2128",
+  "upstream_sha": "3e58e1da",
   "files": [
     {
       "path": "src/contracts/feed-item.ts",
@@ -16,7 +16,7 @@
     },
     {
       "path": "src/core/guard.ts",
-      "sha256": "932065ac49461a439805c2f82ed91d34a61625fb1c0104db7899327d92aebc48"
+      "sha256": "296b840cd551ab476f9364f35be086f322f27eee67533726e35e00e1cd28f59a"
     },
     {
       "path": "src/core/pii.ts",
@@ -64,7 +64,7 @@
     },
     {
       "path": "src/core/model.ts",
-      "sha256": "c040149d24bdae70260b7324f6d7eea376deb468d07d029a72ac378a9838b4f7"
+      "sha256": "f80d012759908fd0def1280ad91e1465e743b9e65c33d8e76039ac0463aa8027"
     },
     {
       "path": "src/core/route.ts",
@@ -72,19 +72,19 @@
     },
     {
       "path": "src/core/pipeline.ts",
-      "sha256": "996f894315bfba9d69283f533a221f234aa25e3be50dab5987fd1ed5e9a0259c"
+      "sha256": "2f471a48c0053b650480a7aafc78d9ea348f6bb5d6f1ca2e09533cf416cc6eab"
     },
     {
       "path": "src/core/cli.ts",
-      "sha256": "eca04d4621fd6ae7ac114f6b501949456132f7aa2f12966de553e8bb60cd09f9"
+      "sha256": "65dd37be825f6ef40ae868a4c1683ec677624d5fbe36c775bb6623d635b6fc09"
     },
     {
       "path": "src/core/digest.ts",
-      "sha256": "fd1d3509562af5465a72060d3803d78ee7847885b01df8677956764bf37c29a4"
+      "sha256": "d24d66c11eaa321e3323bec755e1bd7206cb076a2f1b9783ae9e062c053352fc"
     },
     {
       "path": "src/core/voice.ts",
-      "sha256": "ee7232bb1292776dfcfe696f844277d3ec84424df7f25f6a555814ed8e8792aa"
+      "sha256": "23f13e900cf249df1661feb26f5c77f16827b7646d7a415ce6370bc6866d7d51"
     },
     {
       "path": "src/core/index.ts",
@@ -104,11 +104,11 @@
     },
     {
       "path": "src/sinks/wiki.ts",
-      "sha256": "db9a6688560445ea4ef7d5294d3453c66ee8a866db2b461c7b8fce724d7dc820"
+      "sha256": "265598ffa0c64598f81b62e00ddb214a1de84714f45f9b89a1c5e36c509f8d22"
     },
     {
       "path": "src/sinks/page.ts",
-      "sha256": "465a17cc125ff9ae016fc60394a6529468e1d474c4827c64c813081699aae6a8"
+      "sha256": "c3238a3c5766f6ed298ff64fd795787d39c00f46466afc245fdbad9ec0b1f8b2"
     },
     {
       "path": "src/sinks/deliveries.ts",
@@ -152,7 +152,7 @@
     },
     {
       "path": "test/model.test.ts",
-      "sha256": "b79205e8d7d9ab9e132d50a3e5a96f701e84dc330013f3ce53eecc0b878ebae2"
+      "sha256": "14419aa50a53b060f2fd9d8b7aed6ef988b43de989769d32feb0ec7916e36d62"
     },
     {
       "path": "test/review.test.ts",

@@ -106,9 +106,10 @@ export function extractPrompt(e: Envelope, profile: IntentProfile, chunk: string
     RETURN,
     "",
     `SOURCE: ${e.source} · ${defang(e.content_kind)}${e.published_at ? ` · ${defang(e.published_at.slice(0, 10))}` : ""} · part ${part.i + 1} of ${part.n}`,
-    part.context ? `SUMMARY BY THE RECORDER (context only, not his words, never quote it):\n${defang(clip(part.context, 1500))}` : "",
     takenList(part.taken ?? []),
     "<<<ITEM (untrusted)",
+    // The recorder summary can quote third parties: inside the fence (audit pass 6, item 2).
+    part.context ? `SUMMARY BY THE RECORDER (context only, not his words, never quote it):\n${defang(clip(part.context, 1500))}` : "",
     `TITLE: ${defang(e.title)}`,
     `TEXT:\n${defang(chunk)}`,
     "ITEM>>>",

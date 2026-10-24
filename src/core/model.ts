@@ -85,7 +85,9 @@ export const defang = (s: string) => stripInvisible(s).replace(/@/g, "＠").repl
 /** `ownVoice`: the item is the owner's own conversation or note (a voice source), graded without the quality scale. */
 export function gradePrompt(e: Envelope, profile: IntentProfile, cfg: ModelConfig, now = new Date(), ownVoice = false): string {
   const personal = ownVoice;
-  const content = e.content_kind === "transcript" ? `${clip(e.content, 6000)}\n…\n${e.content.slice(-2000)}` : clip(e.content, 8000);
+  // Invisible padding is stripped before the clip, so it cannot crowd the visible text out of the window (pass 6, item 3).
+  const visible = stripInvisible(e.content);
+  const content = e.content_kind === "transcript" ? `${clip(visible, 6000)}\n…\n${visible.slice(-2000)}` : clip(visible, 8000);
   return [
     // Novelty and urgency are relative to today, and backfills grade items weeks after they appeared.
     `TODAY: ${now.toISOString().slice(0, 10)}`,
@@ -101,9 +103,11 @@ export function gradePrompt(e: Envelope, profile: IntentProfile, cfg: ModelConfi
       : `Return: {"summary_short": "one sentence", "summary_medium": "one paragraph", "quality": 1-100, "tier": "S|A|B|C|D", "importance": 1-10, "novelty": 1-10, "urgency": 1-10, "labels": [...], "relevance": 0-100, "projects": [project names it serves], "reason": "one sentence on why it matters to the owner, or why not"}`,
     personal ? "" : `Tiers: S groundbreaking, act now · A excellent, must-read · B good · C average, skim · D low value.`,
     "",
-    `SOURCE: ${e.source}${e.author ? ` · ${defang(e.author)}` : ""} · ${defang(e.content_kind)}${e.published_at ? ` · ${defang(e.published_at.slice(0, 10))}` : ""}`,
-    e.url ? `URL: ${defang(e.url)}` : "",
+    // Every source-written field sits inside the fence, the author included (audit pass 5, K2).
+    `SOURCE: ${e.source}`,
     "<<<ITEM (untrusted)",
+    `ABOUT: ${e.author ? `${defang(e.author)} · ` : ""}${defang(e.content_kind)}${e.published_at ? ` · ${defang(e.published_at.slice(0, 10))}` : ""}`,
+    e.url ? `URL: ${defang(e.url)}` : "",
     `TITLE: ${defang(e.title)}`,
     `CONTENT:\n${defang(content)}`,
     "ITEM>>>",
