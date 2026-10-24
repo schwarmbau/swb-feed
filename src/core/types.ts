@@ -27,6 +27,8 @@ export interface VoiceConfig {
   ownerLabels?: string[];
   /** New candidates offered to him per run (default 10); the rest wait, most useful first. */
   maxNewPerRun?: number;
+  /** One sitting: at most this many candidates wait in his queue at once (default 25); a run tops it up. */
+  maxWaiting?: number;
   /** Failed runs after which an item is parked until `voice reset <id>` (default 3). */
   failuresBeforePark?: number;
   /** The port for extraction; defaults to the grading port. Must accept personal items. */

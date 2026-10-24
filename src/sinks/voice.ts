@@ -58,6 +58,12 @@ export function relatedLine(r: NonNullable<VoiceItem["related"]>): string {
   return `Related to your earlier ${plain(r.kind)} \`${safe(r.id, /^[0-9a-f]{16}$/, "unknown")}\` (${how} ${safe(r.at.slice(0, 10), /^\d{4}-\d{2}-\d{2}$/, "unknown date")}): „${plain(r.quote)}".`;
 }
 
+/** The repeats this entry stands for: the same point said again in the same reading, settled with it. */
+export function membersLine(members: NonNullable<VoiceItem["members"]>): string {
+  const each = members.map((m) => `${m.at && /^\d{1,3}:\d{2}$/.test(m.at) ? `at ${m.at} ` : ""}\`${safe(m.id, /^[0-9a-f]{16}$/, "unknown")}\``);
+  return `Said again in this conversation: ${each.join(", ")}; settled with this one.`;
+}
+
 /** How the quote was attributed to him, said as it happened. */
 function attribution(v: VoiceItem): string {
   const label = v.speaker ? ` (label "${plain(v.speaker)}")` : "";
@@ -83,6 +89,7 @@ export function voiceBody(v: VoiceItem, l: Landing): string[] {
     "",
     `${l.typed ? `Typed ${plain(l.kind)} by him at approval` : `Landed as ${plain(l.kind)}`}; the extractor suggested ${plain(v.kind)} (confidence ${Math.round(Number(v.confidence) || 0)}).`,
     ...(v.related ? [relatedLine(v.related)] : []),
+    ...(v.members?.length ? [membersLine(v.members)] : []),
     where.join(" · "),
   ];
 }

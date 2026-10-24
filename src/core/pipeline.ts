@@ -12,8 +12,8 @@ import { loadIntent } from "./intent.ts";
 import { gradeDeterministic } from "./grade.ts";
 import { route } from "./route.ts";
 import { normalizeUrl, sha256 } from "./text.ts";
-import { alreadyDecided as alreadyDecided_, completedVoiceItems, extractionConfidence, extractions, extractVoice, failures, markKey, markStart, mineConversations, offerOrder, recordExtraction, recordFailure, relatedPoint, samePoint, voiceChunks, voiceWindow, type ExtractionRow } from "./voice.ts";
-import { approvedTexts, blockedIds, isReviewSink, openIntents, pendingReviews, queueVoice, reviewRows, supersedeVoice } from "../sinks/review.ts";
+import { alreadyDecided as alreadyDecided_, completedVoiceItems, extractionConfidence, extractions, extractVoice, failures, markKey, markStart, MAX_WAITING, mineConversations, offerOrder, recordExtraction, recordFailure, relatedPoint, samePoint, voiceChunks, voiceWindow, type ExtractionRow } from "./voice.ts";
+import { approvedTexts, blockedIds, isReviewSink, openIntents, pendingReviews, queueVoice, reviewRows, revisedSinceApproval, supersedeVoice } from "../sinks/review.ts";
 
 export interface SourceReport {
   source: string;
@@ -164,7 +164,9 @@ async function deliver(cfg: FeedConfig, ledger: Ledger, items: (GradedItem & { s
     for (const name of item.sinks) {
       const sink = cfg.sinks[name];
       if (!sink) throw new Error(`rule routes to unknown sink "${name}"`);
-      if (sink.kind !== "delivery" || !accepts(sink, item) || ledger.wasDelivered(item.id, name)) continue;
+      // A held item revised after his approval goes back to its review queue, receipt or not.
+      const requeue = isReviewSink(sink) && item.risk?.level === "suspect" && revisedSinceApproval(cfg.dataDir, item.id, item.content_hash);
+      if (sink.kind !== "delivery" || !accepts(sink, item) || (ledger.wasDelivered(item.id, name) && !requeue)) continue;
       // A suspect item reaches a delivery only through a person: a review queue, or a sink that says it takes them.
       if (item.risk?.level === "suspect" && !isReviewSink(sink) && !sink.acceptsRisk) {
         report.held.push({ sink: name, id: item.id, flags: item.risk.flags });
@@ -417,7 +419,7 @@ function isCurrentReading(c: VoiceItem, r: ExtractionRow, textOf: Map<string, st
  * is offered and carries `related`, so a reversal reaches him. The queue, the digest and `swb-feed
  * voice` all count from this one list. `textOf`: each own-voice item's present content hash.
  */
-export function voiceOfferable(cfg: FeedConfig, textOf?: Map<string, string>): { fresh: VoiceItem[]; alreadyDecided: number } {
+export function voiceOfferable(cfg: FeedConfig, textOf?: Map<string, string>): { fresh: VoiceItem[]; alreadyDecided: number; notHis: VoiceItem[] } {
   const texts = textOf ?? new Map(new Ledger(cfg.dataDir).envelopes().filter((e) => isOwnVoice(cfg, e)).map((e) => [e.id, e.content_hash]));
   const current = extractions(cfg.dataDir);
   const rows = reviewRows(cfg.dataDir);
@@ -425,28 +427,57 @@ export function voiceOfferable(cfg: FeedConfig, textOf?: Map<string, string>): {
   const offered = rows.flatMap((r) => (r.voice && r.decision === "queued" && known.has(r.id) ? [r.voice] : []));
   // Decided: approved or rejected, and also an approval that was started and interrupted (it may have
   // written already), so a re-read never offers that point unlinked and a second entry cannot follow.
+  // A repeat settled with its lead carries its own candidate on its receipt.
   const finals = new Map(rows.filter((r) => r.decision === "approved" || r.decision === "rejected").map((r) => [r.id, r]));
   const interrupted = openIntents(cfg.dataDir);
-  const decided = rows.flatMap((r) => {
-    const f = finals.get(r.id) ?? interrupted.get(r.id);
-    if (!r.voice || r.decision !== "queued" || !f) return [];
+  const queuedVoice = new Map(rows.flatMap((r) => (r.voice && r.decision === "queued" ? [[r.id, r.voice] as const] : [])));
+  const decided = [...new Set([...finals.keys(), ...interrupted.keys()])].flatMap((id) => {
+    const f = finals.get(id) ?? interrupted.get(id)!;
+    const v = queuedVoice.get(id) ?? f.voice;
+    if (!v) return [];
     const decision = f.decision === "approving" ? ("interrupted" as const) : (f.decision as "approved" | "rejected");
-    return [{ v: r.voice, decision, at: f.at, kind: f.landed_kind ?? r.voice.kind }];
+    return [{ v, decision, at: f.at, kind: f.landed_kind ?? v.kind }];
   });
   let alreadyDecided = 0;
   const fresh: VoiceItem[] = [];
-  for (const c of completedVoiceItems(cfg.dataDir)) {
+  const notHis: VoiceItem[] = [];
+  const all = completedVoiceItems(cfg.dataDir).filter((c) => {
     const cur = current.get(c.item);
-    if (known.has(c.id) || !cur || !isCurrentReading(c, cur, texts) || fresh.some((x) => x.id === c.id)) continue;
+    return cur !== undefined && isCurrentReading(c, cur, texts);
+  });
+  // A candidate he restored counts as his from then on, through every later reading and triage.
+  const restoredIds = new Set(rows.filter((r) => r.restored).map((r) => r.id));
+  const his = (c: VoiceItem) => c.speaker_verified || restoredIds.has(c.id);
+  // One rule, shared with settleMembers (review.ts): a repeat travels with its lead only when both are his
+  // and the repeat never had a review row of its own. Otherwise it stands on its own: his repeat of a lead
+  // that is not his, a repeat once queued, deferred or parked, and a repeat that is not his (parked).
+  const seen = new Set(rows.map((r) => r.id));
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const leadOf = (c: VoiceItem) => {
+    const lead = c.same_as && c.same_as !== c.id ? byId.get(c.same_as) : undefined;
+    return lead && his(lead) && his(c) && !seen.has(c.id) ? lead.id : undefined;
+  };
+  for (const c of all) {
+    if (known.has(c.id) || fresh.some((x) => x.id === c.id) || notHis.some((x) => x.id === c.id) || leadOf(c)) continue;
     if (decided.some((d) => alreadyDecided_(c, d.v))) {
       alreadyDecided++;
       continue;
     }
     if (offered.some((o) => samePoint(o, c))) continue;
+    // Only his own voice reaches him; the rest stays recorded and `review parked` shows it.
+    if (!his(c)) {
+      notHis.push(c);
+      continue;
+    }
+    const members = all.filter((m) => leadOf(m) === c.id && !known.has(m.id)).map((m) => ({ id: m.id, ...(m.at ? { at: m.at } : {}) }));
     const rel = decided.find((d) => relatedPoint(c, d.v));
-    fresh.push(rel ? { ...c, related: { id: rel.v.id, kind: rel.kind, decision: rel.decision, at: rel.at, quote: rel.v.quote, ...(rel.v.sentence ? { sentence: rel.v.sentence } : {}) } } : c);
+    fresh.push({
+      ...c,
+      ...(members.length ? { members } : {}),
+      ...(rel ? { related: { id: rel.v.id, kind: rel.kind, decision: rel.decision, at: rel.at, quote: rel.v.quote, ...(rel.v.sentence ? { sentence: rel.v.sentence } : {}) } } : {}),
+    });
   }
-  return { fresh: fresh.sort(offerOrder), alreadyDecided };
+  return { fresh: fresh.sort(offerOrder), alreadyDecided, notHis };
 }
 
 /**
@@ -561,12 +592,15 @@ async function voicePhase(
   ctx.voiceOffers ??= { left: Math.max(0, v.maxNewPerRun ?? 10) };
   const known = blockedIds(cfg.dataDir);
   const queuedNow: VoiceItem[] = [];
+  // One sitting: the queue is topped up to maxWaiting, never past it.
+  let room = Math.max(0, (v.maxWaiting ?? MAX_WAITING) - pendingReviews(cfg.dataDir).filter((r) => r.voice).length);
   for (const c of fresh) {
-    if (ctx.voiceOffers.left <= 0) break;
+    if (ctx.voiceOffers.left <= 0 || room <= 0) break;
     if (queuedNow.some((o) => samePoint(o, c))) continue;
     if (queueVoice(cfg.dataDir, c, known)) {
       stats.queued++;
       ctx.voiceOffers.left--;
+      room--;
       queuedNow.push(c);
     }
   }

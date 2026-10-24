@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { allGraded, ingest, envelopeFrom, readHealth } from "../src/core/pipeline.ts";
+import { allGraded, ingest, envelopeFrom, readHealth, voiceOfferable } from "../src/core/pipeline.ts";
 import { Ledger } from "../src/core/ledger.ts";
 import { applyModelAnswer, gradePrompt } from "../src/core/model.ts";
 import { gradeDeterministic } from "../src/core/grade.ts";
@@ -37,11 +37,11 @@ const TRANSCRIPT = [
   "He talks about the workshop and the feed. Die Werkstatt öffnet bald.",
   "",
   "Transcript:",
-  "[0:05] Lena: Guten Morgen, ich bin im Park unterwegs.",
+  "[0:05] Lena: Guten Morgen, ich bin in der Werkstatt.",
   "[1:10] Lena: Die Werkstatt öffnet diese Woche, das ist entschieden.",
-  "[2:30] Lena: Vielleicht könnten wir später einen Podcast machen, mal schauen.",
-  "[3:45] Lena: Robin, bitte schreib mir bis Freitag eine Liste der offenen Punkte.",
-  "[5:00] Lena: Offen ist noch, ob wir Honcho oder Hindsight nehmen, das muss ich rausfinden.",
+  "[2:30] Lena: Vielleicht könnten wir später einen Tauschmarkt machen, mal schauen.",
+  "[3:45] Lena: Robin, bitte schreib mir bis Freitag eine Liste der Werkzeuge.",
+  "[5:00] Lena: Offen ist noch, ob wir Eiche oder Buche nehmen, das muss ich rausfinden.",
 ].join("\n");
 
 const omiRaw = (over: Partial<RawItem> = {}): RawItem => ({
@@ -59,9 +59,9 @@ const envelope = (over: Partial<RawItem> = {}): Envelope => envelopeFrom(omiRaw(
 const goodItems = {
   items: [
     { kind: "decision", text: "The workshop opens this week.", quote: "Die Werkstatt öffnet diese Woche", project: "schwarmbau", confidence: 92 },
-    { kind: "idea", text: "Maybe a podcast later.", quote: "Vielleicht könnten wir später einen Podcast machen", project: null, confidence: 70 },
-    { kind: "ask", text: "Robin writes a list of open points by Friday.", quote: "bitte schreib mir bis Freitag eine Liste der offenen Punkte", project: "GARDEN", confidence: 80 },
-    { kind: "question", text: "Honcho or Hindsight is still open.", quote: "Offen ist noch, ob wir Honcho oder Hindsight nehmen", project: "garden", confidence: 75 },
+    { kind: "idea", text: "Maybe a swap market later.", quote: "Vielleicht könnten wir später einen Tauschmarkt machen", project: null, confidence: 70 },
+    { kind: "ask", text: "Robin writes a list of the tools by Friday.", quote: "bitte schreib mir bis Freitag eine Liste der Werkzeuge", project: "GARDEN", confidence: 80 },
+    { kind: "question", text: "Oak or beech is still open.", quote: "Offen ist noch, ob wir Eiche oder Buche nehmen", project: "garden", confidence: 75 },
   ],
 };
 
@@ -274,8 +274,16 @@ describe("the kind is his call (audit H-B: no lexical decision rules)", () => {
     expect(text).not.toContain("· decision ·");
   });
 
-  test("other-speaker probe: the speaker shows as unverified; a plain approval still lands an idea", async () => {
-    const { s, row } = await probeRun("[0:10] Speaker 2: Yes we do it, we sign the contract today.", "we sign the contract today");
+  test("other-speaker probe: parked, never offered; restored by him, it shows as unverified and a plain approval still lands an idea", async () => {
+    const { s, row: none } = await probeRun("[0:10] Speaker 2: Yes we do it, we sign the contract today.", "we sign the contract today");
+    expect(none).toBeUndefined();
+    const parked = await capture(() => runCli(["review", "parked"], async () => s.cfg));
+    expect(parked).toContain("1 parked as not your voice");
+    expect(parked).toContain('not his by the recorder\'s labels (label "Speaker 2")');
+    const id = voiceItems(s.cfg.dataDir)[0]!.id;
+    expect(await capture(() => runCli(["review", "restore", id.slice(0, 8)], async () => s.cfg))).toContain("restored 1");
+    const row = pendingReviews(s.cfg.dataDir)[0]!;
+    expect(row).toMatchObject({ id, restored: true });
     expect(row.voice).toMatchObject({ speaker: "Speaker 2", speaker_verified: false });
     const text = readFileSync((await approveReview(s.cfg, [], row.id.slice(0, 8), s.c)).ref!, "utf8");
     expect(text).toContain('not his by the recorder\'s labels (label "Speaker 2")');
@@ -315,7 +323,7 @@ describe("the review queue and the landing (line c)", () => {
     const s = setup(fakePort());
     const r = await ingest(s.cfg, s.job, [{ source: s.source }], s.c);
     expect(r.voice).toMatchObject({ extracted: 1, queued: 4, calls: 1, failed: 0 });
-    expect(pendingReviews(s.cfg.dataDir).map((p) => p.voice?.kind)).toEqual(["decision", "ask", "question", "idea"]);
+    expect(pendingReviews(s.cfg.dataDir).map((p) => p.voice?.kind)).toEqual(["decision", "question", "ask", "idea"]);
     expect(existsSync(join(s.records, "schwarmbau", "INBOX-FROM-VOICE.md"))).toBe(false);
     expect(existsSync(join(s.records, "INBOX-FROM-VOICE.md"))).toBe(false);
   });
@@ -553,7 +561,7 @@ describe("crash safety (audit M-1)", () => {
     const e = envelope();
     markStart(s.cfg.dataDir, "2000-01-01T00:00:00.000Z");
     new Ledger(s.cfg.dataDir).append(e);
-    recordExtraction(s.cfg.dataDir, e, await extractVoice(e, profile, fakePort()));
+    recordExtraction(s.cfg.dataDir, e, await extractVoice(e, profile, fakePort(), OWN));
     await ingest(s.cfg, s.job, [], s.c);
     expect(pendingReviews(s.cfg.dataDir)).toHaveLength(4);
     expect(extractCalls(port)).toBe(0);
@@ -564,7 +572,7 @@ describe("crash safety (audit M-1)", () => {
     const e = envelope();
     markStart(s.cfg.dataDir, "2000-01-01T00:00:00.000Z");
     appendFileSync(join(s.cfg.dataDir, VOICE_FILE), '{"type":"item","id":"torn');
-    recordExtraction(s.cfg.dataDir, e, await extractVoice(e, profile, fakePort()));
+    recordExtraction(s.cfg.dataDir, e, await extractVoice(e, profile, fakePort(), OWN));
     expect(voiceItems(s.cfg.dataDir)).toHaveLength(4);
     expect(extractedAt(s.cfg.dataDir).get(e.id)).toBe(e.content_hash);
     appendFileSync(join(s.cfg.dataDir, "review.jsonl"), '{"id":"to');
@@ -579,7 +587,7 @@ describe("crash safety (audit M-1)", () => {
     const e = envelope();
     markStart(s.cfg.dataDir, "2000-01-01T00:00:00.000Z");
     new Ledger(s.cfg.dataDir).append(e);
-    const r = await extractVoice(e, profile, fakePort());
+    const r = await extractVoice(e, profile, fakePort(), OWN);
     appendFileSync(join(s.cfg.dataDir, VOICE_FILE), `${JSON.stringify({ type: "item", ...r.items[0] })}\n{"type":"extr`);
     await ingest(s.cfg, s.job, [], s.c);
     expect(extractCalls(port)).toBe(1);
@@ -666,18 +674,19 @@ describe("a conversation he marks as all his (`voice mine`)", () => {
   const cli = (s: ReturnType<typeof setup>, ...args: string[]) => capture(() => runCli(["voice", ...args], async () => s.cfg));
   const pendingVoice = (s: ReturnType<typeof setup>) => pendingReviews(s.cfg.dataDir).map((r) => r.voice!);
 
-  test("mine after a reading: waiting candidates are withdrawn at once, the next run reads it again with every turn his", async () => {
+  test("mine after a reading: the parked candidates stay parked, the next run reads it again with every turn his", async () => {
     const s = setup(fakePort({ extract: () => items }), { items: [omiRaw({ content: SPLIT })] });
     await ingest(s.cfg, s.job, [{ source: s.source }], fresh(s));
-    expect(pendingVoice(s).every((v) => !v.speaker_verified)).toBe(true);
-    const said = await cli(s, "mine", "conv-1");
-    expect(said).toContain('Omi "Morning notes" (2026-10-13): every turn counts as his; read again on the next run, 2 waiting candidates withdrawn');
+    // Under the recorder's labels these turns are not his: nothing waits, both are parked.
     expect(pendingVoice(s)).toEqual([]);
-    expect(reviewRows(s.cfg.dataDir).filter((r) => r.decision === "superseded").every((r) => r.title!.startsWith("withdrawn: his conversation mark was set"))).toBe(true);
+    expect(await capture(() => runCli(["review", "parked"], async () => s.cfg))).toContain("2 parked as not your voice");
+    const said = await cli(s, "mine", "conv-1");
+    expect(said).toContain('Omi "Morning notes" (2026-10-13): every turn counts as his; read again on the next run');
+    expect(pendingVoice(s)).toEqual([]);
     await ingest(s.cfg, s.job, [], fresh(s));
     const now = pendingVoice(s);
     expect(now).toHaveLength(2);
-    // Every turn, even the one that addresses him by name, counts as his: by his ruling.
+    // Every turn, even the one that addresses him by name, counts as hers.
     expect(now.every((v) => v.speaker_verified && v.speaker_basis === "mark" && Boolean(v.marked))).toBe(true);
     expect(readFileSync(join(s.cfg.dataDir, VOICE_FILE), "utf8")).toMatch(/"type":"mine","item":"conv-1","source":"Omi","at":"20\d\d-/);
     const landed = readFileSync((await approveReview(s.cfg, [], now[0]!.id.slice(0, 8), s.c)).ref!, "utf8");
@@ -694,12 +703,13 @@ describe("a conversation he marks as all his (`voice mine`)", () => {
     await cli(s, "unmine", "conv-1");
     expect(pendingVoice(s)).toEqual([]);
     await ingest(s.cfg, s.job, [], fresh(s));
-    expect(pendingVoice(s)).toHaveLength(2);
-    expect(pendingVoice(s).some((v) => v.speaker_verified)).toBe(false);
-    expect(pendingVoice(s).some((v) => v.marked)).toBe(false);
+    // Read again under the recorder's labels: not his, so parked, and none of the marked reading's stays waiting.
+    expect(pendingVoice(s)).toEqual([]);
+    const { notHis } = voiceOfferable(s.cfg);
+    expect(notHis).toHaveLength(2);
+    expect(notHis.some((v) => v.speaker_verified || v.marked)).toBe(false);
     const md = readFileSync(writeDigest(s.cfg, { dir: join(s.dir, "digests"), now: new Date() }).path, "utf8");
-    expect(md).toContain("## Withdrawn from your queue: 4");
-    expect(md).toContain("- 2 because his conversation mark was set;");
+    expect(md).toContain("## Withdrawn from your queue: 2");
     expect(md).toContain("- 2 because his conversation mark was removed;");
   });
 
@@ -795,12 +805,12 @@ describe("audit pass 2", () => {
       // Same kind, same sentence, another span: already decided, skipped.
       { kind: "decision", text: "Opens this week, decided.", quote: "Die Werkstatt öffnet diese Woche, das ist entschieden", project: "schwarmbau", confidence: 95 },
       // Same sentence, another suggested kind: offered and linked to the rejected idea.
-      { kind: "ask", text: "Make a podcast later.", quote: "Vielleicht könnten wir später einen Podcast machen, mal schauen", confidence: 70 },
+      { kind: "ask", text: "Make a swap market later.", quote: "Vielleicht könnten wir später einen Tauschmarkt machen, mal schauen", confidence: 70 },
     ] };
     const r = await ingest({ ...s.cfg, model: { ...s.cfg.model!, port: fakePort({ extract: () => again }) } }, s.job, [{ source: s.source, items: [omiRaw({ content: `${TRANSCRIPT}\n[6:10] Lena: Neu.` })] }], fresh(s));
     expect(r.voice).toMatchObject({ already_decided: 1 });
     const pending = pendingReviews(s.cfg.dataDir).map((x) => x.voice!);
-    expect(pending.map((v) => v.text)).toEqual(["Make a podcast later."]);
+    expect(pending.map((v) => v.text)).toEqual(["Make a swap market later."]);
     expect(pending[0]!.related).toMatchObject({ kind: "idea", decision: "rejected" });
   });
 
@@ -829,7 +839,7 @@ describe("audit pass 2", () => {
   });
 
   test("N-5: the stored sentence is bounded around the quote, guarded, and escaped wherever it is shown", async () => {
-    const pad = "und dann reden wir noch lange über ganz andere Dinge im Park ".repeat(20);
+    const pad = "und dann reden wir noch lange über ganz andere Dinge in der Werkstatt ".repeat(20);
     const turn = `${pad}<b>Die Werkstatt öffnet diese Woche</b> ${pad}und fertig.`;
     const s = setup(fakePort({ extract: () => ({ items: [goodItems.items[0]] }) }), { items: [omiRaw({ content: `Transcript:\n[1:10] Lena: ${turn}` })] });
     await ingest(s.cfg, s.job, [{ source: s.source }], fresh(s));
@@ -887,10 +897,10 @@ describe("audit pass 3", () => {
     const s = setup(fakePort({ extract: () => many }), { items: [omiRaw({ content, flags: ["truncated: transcript ends at 11:00 of 20:00"] })] });
     await ingest(s.cfg, s.job, [{ source: s.source }], fresh(s));
     const status = () => capture(() => runCli(["voice"], async () => s.cfg));
-    expect(await status()).toContain("10 waiting for review · 2 not yet offered");
+    expect(await status()).toContain("10 waiting for review (one sitting: 25) · 2 not yet offered");
     // A revision: the old reading's two unoffered candidates are stale and must not be promised.
     await ingest({ ...s.cfg, voice: { ...s.cfg.voice!, port: fakePort({ acceptsPersonal: false }) } }, s.job, [{ source: s.source, items: [omiRaw({ content: `${content}\n[12:00] Lena: Neu.` })] }], fresh(s));
-    expect(await status()).toContain("0 waiting for review · 0 not yet offered");
+    expect(await status()).toContain("0 waiting for review (one sitting: 25) · 0 not yet offered");
     const md = readFileSync(writeDigest(s.cfg, { dir: join(s.dir, "digests"), now: new Date() }).path, "utf8");
     expect(md).not.toContain("more candidates from your voice are recorded");
   });

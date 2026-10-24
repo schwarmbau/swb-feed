@@ -56,7 +56,7 @@ swb-feed pull research "My blog" | swb-feed ingest research "My blog"
 
 ## Configure
 
-`feed.config.ts` is plain TypeScript:
+`feed.config.ts` is plain TypeScript. The package is not on npm: inside this clone, import from `./src/core/index.ts` (as the demo does); in your own project, add it from git with `bun add github:schwarmbau/swb-feed`, which makes the import below resolve.
 
 ```ts
 import { defineFeed, feed, inbox, wiki, hindsight } from "@schwarmbau/swb-feed";

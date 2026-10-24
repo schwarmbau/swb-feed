@@ -4,7 +4,7 @@
 //   ## Interests
 //   - **Agent memory** (3): memory, second brain, knowledge base, recall
 //   ## Projects
-//   - **cartograph**: codebase, repository, static analysis
+//   - **reading-list**: newsletter, essays, bookmarks
 //   ## Avoid
 //   - giveaway, crypto pump
 

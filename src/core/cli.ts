@@ -9,8 +9,10 @@ import { acquireLock, identityOf, ingest, withDeadline, PULL_DEADLINE_MS, regrad
 import { isModelGrade } from "./model.ts";
 import { Ledger, skippedRows, unversioned } from "./ledger.ts";
 import { clip } from "./text.ts";
-import { approveReview, pendingReviews, previewVoice, rejectReview, reviewRows, withdrawPending, type ReviewRow } from "../sinks/review.ts";
-import { extractedAt, extractions, failures, markBackfill, markKey, markMine, mineConversations, resetVoice, voiceItems, voiceWindow } from "./voice.ts";
+import { isHeld, shownTitle } from "./guard.ts";
+import { approveReview, pendingReviews, previewVoice, rejectReview, restoreVoice, reviewRows, triageVoice, withdrawPending, type ReviewRow } from "../sinks/review.ts";
+import { extractedAt, extractions, failures, markBackfill, markKey, markMine, MAX_WAITING, mineConversations, OFFER_ORDER, offerOrder, proposeProject, resetVoice, voiceItems, voiceWindow } from "./voice.ts";
+import type { IntentProfile, VoiceItem } from "./types.ts";
 import { plain, voiceBody } from "../sinks/voice.ts";
 import { loadIntent } from "./intent.ts";
 
@@ -25,12 +27,16 @@ const USAGE = `swb-feed — feed any second brain
   swb-feed explain <id>          one item's trail: capture, guard, grade, rules, deliveries
   swb-feed status                ledger size, sources, sinks, jobs, reputation
   swb-feed source reset <name>   lift a demotion and close the failure circuit for one source
-  swb-feed review [list]         promote candidates waiting for a person
+  swb-feed review [list]         what waits for a person: one sitting of his own voice, grouped by project
   swb-feed review approve <id>   hand one to the sink it was queued for (writes it, with a receipt)
                                  a voice candidate lands in its project's record; --project <name> re-links it,
                                  --kind <kind> re-types it (his call: the one way a held item becomes a decision)
   swb-feed review show <id>      the exact text an approval would write
   swb-feed review reject <id>    close one for good: it is never offered again
+                                 approving or rejecting a voice candidate settles the repeats it stands for
+  swb-feed review triage         one sitting: park what is not his voice, defer his own past maxWaiting (--dry-run)
+  swb-feed review parked         the candidates that are not his voice, recorded, never offered
+  swb-feed review restore <id>|--all   queue parked candidates again; a triage never parks them twice
   swb-feed voice                 the own-voice stage: window, items read, candidates waiting, parked items
   swb-feed voice backfill --since <date>   also read his conversations from that date on
   swb-feed voice reset <id>      try a parked item again
@@ -42,7 +48,7 @@ const err = (s: string) => process.stderr.write(`${s}\n`);
 
 // Strict parsing: a mistyped flag must stop the run, because `--dryrun` silently ignored
 // would mean a live run with real deliveries.
-const BOOL_FLAGS = new Set(["--dry-run", "--help"]);
+const BOOL_FLAGS = new Set(["--dry-run", "--help", "--all"]);
 const VALUE_FLAGS = new Set(["--config", "--project", "--kind", "--since", "--source"]);
 let flags = new Set<string>();
 let values = new Map<string, string>();
@@ -124,26 +130,49 @@ function printReport(name: string, r: RunReport) {
  * approval writes (it lands as an idea), unclipped, and below it the full transcript sentence, which
  * is shown here and never written. `review show <id> --kind … --project …` previews other flags.
  */
-export function voiceLines(r: ReviewRow): string[] {
+export function voiceLines(r: ReviewRow, proposal?: { project: string; term: string }): string[] {
   const v = r.voice!;
   return [
-    `  ${r.id.slice(0, 12)}  suggested ${v.kind} · ${v.project ?? "no project yet"} · ${v.date}`,
+    `  ${r.id.slice(0, 12)}  suggested ${v.kind} · ${v.project ?? (proposal ? `no project yet, proposed ${proposal.project}` : "no project yet")} · ${v.date}`,
     ...voiceBody(v, { kind: "idea", typed: false }).map((l) => (l ? `      ${l}` : "")),
+    ...(proposal ? [`      proposed from "${plain(proposal.term)}": review approve ${r.id.slice(0, 12)} --project ${proposal.project}`] : []),
     ...(v.sentence ? [`      (shown, never written) in its sentence: „${plain(v.sentence)}"`] : []),
     ...(v.related?.sentence ? [`      (shown, never written) the earlier one's sentence: „${plain(v.related.sentence)}"`] : []),
     "",
   ];
 }
 
+/**
+ * One sitting, as he reads it: his candidates under their project (or the one proposed for them), the
+ * projects with most waiting first and "no project yet" last; inside each, decisions and questions first.
+ */
+/** `held`: own-voice items the guard holds (item id → flags); a candidate read from one is marked. */
+export function voiceSitting(waiting: ReviewRow[], profile: Pick<IntentProfile, "projects">, held: Map<string, string[]> = new Map()): string[] {
+  const groups = new Map<string, { r: ReviewRow; proposal?: { project: string; term: string } }[]>();
+  for (const r of waiting) {
+    if (!r.voice) continue;
+    const proposal = proposeProject(r.voice, profile);
+    const key = r.voice.project ?? proposal?.project ?? "";
+    groups.set(key, [...(groups.get(key) ?? []), { r, ...(proposal ? { proposal } : {}) }]);
+  }
+  const keys = [...groups.keys()].sort((a, b) => Number(a === "") - Number(b === "") || groups.get(b)!.length - groups.get(a)!.length || a.localeCompare(b));
+  return keys.flatMap((k) => {
+    const rows = groups.get(k)!.sort((a, b) => offerOrder(a.r.voice!, b.r.voice!));
+    const counts = OFFER_ORDER.map((kind) => [kind, rows.filter((x) => x.r.voice!.kind === kind).length] as const).filter(([, n]) => n);
+    return [`── ${k || "no project yet"} · ${counts.map(([kind, n]) => `${n} ${kind}${n > 1 ? "s" : ""}`).join(", ")}`, "", ...rows.flatMap((x) => [...(held.has(x.r.voice!.item) ? [`  ⚠ read from an item the guard holds (${held.get(x.r.voice!.item)!.join(", ")}): check the quote against your own words`] : []), ...voiceLines(x.r, x.proposal)])];
+  });
+}
+
 function voiceStatus(cfg: FeedConfig): string[] {
   const v = cfg.voice!;
   const w = voiceWindow(cfg.dataDir);
   const waiting = pendingReviews(cfg.dataDir).filter((r) => r.voice).length;
-  const unoffered = voiceOfferable(cfg).fresh.length;
+  const { fresh, notHis } = voiceOfferable(cfg);
+  const unoffered = fresh.length;
   const parked = [...failures(cfg.dataDir)].filter(([, f]) => f.length >= (v.failuresBeforePark ?? 3));
   return [
     `own voice: ${[...v.sources, ...(v.marked ?? []).map((m) => `${m} (marked voice: own)`)].join(", ")} · reads from ${w.start?.slice(0, 16) ?? "the next run"}${w.backfill ? `, backfilled from ${w.backfill}` : ""}`,
-    `  ${extractedAt(cfg.dataDir).size} items read · ${voiceItems(cfg.dataDir).length} candidates · ${waiting} waiting for review · ${unoffered} not yet offered (${v.maxNewPerRun ?? 10} per run)`,
+    `  ${extractedAt(cfg.dataDir).size} items read · ${voiceItems(cfg.dataDir).length} candidates · ${waiting} waiting for review (one sitting: ${v.maxWaiting ?? MAX_WAITING}) · ${unoffered} not yet offered (${v.maxNewPerRun ?? 10} per run) · ${notHis.length} parked as not his (review parked)`,
     ...[...mineConversations(cfg.dataDir)].map(([k, at]) => `  ✓ all his (marked ${at.slice(0, 10)}): ${k.replace("\u0000", " ")}`),
     ...parked.map(([item, f]) => `  ⊘ parked ${item}: ${f.length} failed reads, last: ${clip(f[f.length - 1]!.error, 100)} (voice reset ${item})`),
   ];
@@ -188,7 +217,7 @@ async function main() {
   // ingest reads its whole pipe BEFORE it takes the lock, so a slow `pull` upstream never holds the hourly run.
   if (cmd === "ingest") stdinRead = await readStdinItems();
   let release: (() => void) | null = null;
-  const writes = ["run", "ingest", "regrade", "rebuild", "source"].includes(cmd) || (cmd === "review" && ["approve", "reject"].includes(rest[0] ?? "")) || (cmd === "voice" && Boolean(rest[0]));
+  const writes = ["run", "ingest", "regrade", "rebuild", "source"].includes(cmd) || (cmd === "review" && ["approve", "reject", "triage", "restore"].includes(rest[0] ?? "")) || (cmd === "voice" && Boolean(rest[0]));
   if (writes && !flag("--dry-run")) {
     release = acquireLock(cfg.dataDir);
     if (!release) {
@@ -332,15 +361,52 @@ async function dispatch(cfg: FeedConfig, c: RunContext) {
         const byId = new Map(allGraded(cfg, new Ledger(cfg.dataDir)).map((i) => [i.id, i]));
         console.log(`${pending.length} waiting for your review (approve <id> writes it, reject <id> closes it for good):`);
         for (const r of pending) {
-          if (r.voice) {
-            for (const l of voiceLines(r)) console.log(l);
-            continue;
-          }
+          if (r.voice) continue;
           const i = byId.get(r.id);
           const g = i?.grade;
-          console.log(`  ${r.id.slice(0, 12)}  ${String(g?.score ?? r.score ?? "?").padStart(3)} ${g ? gradeTag(g) : "    "}  ${clip(i?.title ?? r.title ?? r.id, 70)} · ${i?.source ?? r.source ?? "?"} · queued ${r.at.slice(0, 10)}${i?.risk?.level === "suspect" ? ` · ⚠ guard: ${i.risk.flags.join(", ")}` : ""}`);
-          if (i?.url ?? r.url) console.log(`                ${i?.url ?? r.url}`);
+          // A held item's own words only fenced and marked; its link is the source's too, so it is left out.
+          console.log(`  ${r.id.slice(0, 12)}  ${String(g?.score ?? r.score ?? "?").padStart(3)} ${g ? gradeTag(g) : "    "}  ${shownTitle(i?.title ?? r.title ?? r.id, i?.risk, 70)} · ${i?.source ?? r.source ?? "?"} · queued ${r.at.slice(0, 10)}`);
+          if ((i?.url ?? r.url) && !isHeld(i?.risk)) console.log(`                ${i?.url ?? r.url}`);
         }
+        if (pending.some((r) => r.voice)) {
+          console.log("");
+          const held = new Map([...byId.values()].filter((x) => isHeld(x.risk)).map((x) => [x.id, x.risk!.flags]));
+          for (const l of voiceSitting(pending, loadIntent(cfg.intent).profile, held)) console.log(l);
+        }
+        if (cfg.voice) {
+          const { fresh, notHis } = voiceOfferable(cfg);
+          if (fresh.length) console.log(`${fresh.length} more of your own wait for a later sitting; a run offers them as this one empties.`);
+          if (notHis.length) console.log(`${notHis.length} not your voice, parked: review parked (review restore <id> brings one back)`);
+        }
+        break;
+      }
+      if (sub === "triage") {
+        if (!cfg.voice) throw new Error("no voice stage in this config");
+        const max = cfg.voice.maxWaiting ?? MAX_WAITING;
+        const before = pendingReviews(cfg.dataDir).filter((r) => r.voice).length;
+        const plan = triageVoice(cfg.dataDir, max, offerOrder, !c.dryRun);
+        console.log(`${c.dryRun ? "would triage" : "triaged"} ${before} waiting: ${plan.park.length} parked as not his voice, ${plan.defer.length} deferred to a later sitting, ${plan.keep.length} stay (one sitting: ${max})`);
+        break;
+      }
+      if (sub === "parked") {
+        if (!cfg.voice) throw new Error("no voice stage in this config");
+        const { notHis } = voiceOfferable(cfg);
+        if (!notHis.length) {
+          console.log("nothing is parked");
+          break;
+        }
+        console.log(`${notHis.length} parked as not your voice (review restore <id> or --all queues them again):`);
+        for (const v of notHis) for (const l of voiceLines({ id: v.id, decision: "parked", at: v.extracted_at, voice: v })) console.log(l);
+        break;
+      }
+      if (sub === "restore") {
+        if (!cfg.voice) throw new Error("no voice stage in this config");
+        const { notHis } = voiceOfferable(cfg);
+        const picked: VoiceItem[] = flag("--all") ? notHis : notHis.filter((v) => id && id.length >= 4 && v.id.startsWith(id));
+        if (!flag("--all") && picked.length !== 1) throw new Error(picked.length ? `"${id}" matches ${picked.length} parked candidates` : `no parked candidate starts with "${id ?? ""}" (need 4+ characters, or --all)`);
+        if (c.dryRun) return err(`would restore ${picked.length}`);
+        for (const v of picked) restoreVoice(cfg.dataDir, v);
+        console.log(`restored ${picked.length}: they wait for you again, and no triage parks them twice`);
         break;
       }
       if (sub === "show" && id) {
@@ -358,7 +424,7 @@ async function dispatch(cfg: FeedConfig, c: RunContext) {
         if (r.voice.related?.sentence) console.log(`(shown, never written) the earlier one's sentence: „${plain(r.voice.related.sentence)}"`);
         break;
       }
-      if (!["approve", "reject"].includes(sub) || !id) throw new Error("usage: swb-feed review [list] | show <id> | approve <id-prefix> | reject <id-prefix>");
+      if (!["approve", "reject"].includes(sub) || !id) throw new Error("usage: swb-feed review [list] | show <id> | approve <id-prefix> | reject <id-prefix> | triage | parked | restore <id>|--all");
       if (c.dryRun) return err(`would ${sub} ${id}`);
       if (sub === "approve") {
         const projects = loadIntent(cfg.intent).profile.projects.map((p) => p.name);

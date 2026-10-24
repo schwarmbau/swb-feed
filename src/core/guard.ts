@@ -2,7 +2,7 @@
 // replaced by a typed marker and private spans are gone. Broad on purpose: this
 // runs at a write boundary, where a false positive costs a word and a miss costs a key.
 
-import { decodeEntities, sha256, splitHidden } from "./text.ts";
+import { clip, decodeEntities, sha256, splitHidden } from "./text.ts";
 import { ibanValid } from "./pii.ts";
 
 const SECRET_SHAPES: { label: string; re: RegExp; valid?: (m: string) => boolean }[] = [
@@ -139,6 +139,19 @@ export function matchingCopy(text: string): string {
 /** Format characters, selectors, tag characters, joiners and fillers out: what a prompt or a memory view gets instead. */
 export const stripInvisible = (s: string) => s.replace(INVISIBLE, "");
 
+/**
+ * How a surface the owner or his assistant reads shows an item's title. A suspect item he has not
+ * approved shows its own words only fenced and marked, the way the wiki banner names it; its author,
+ * link and model summary are for the surface to leave out.
+ */
+export function shownTitle(title: string, risk?: Risk, max = 90): string {
+  if (risk?.level !== "suspect" || risk.approved) return clip(title, max);
+  return `⚠ held (${risk.flags.join(", ")}), untrusted: «${clip(stripInvisible(title).replace(/[«»\s]+/g, " ").trim(), max)}»`;
+}
+
+/** A suspect item he has not approved: surfaces show it fenced, memory holds nothing of it. */
+export const isHeld = (risk?: Risk) => risk?.level === "suspect" && !risk.approved;
+
 /** Text a reader sees normally hides nothing; these do. */
 export function invisibleFlags(text: string): string[] {
   const out: string[] = [];
@@ -263,11 +276,16 @@ function printable(bytes: Uint8Array): string | undefined {
   return ok / [...text].length >= 0.9 ? text : undefined;
 }
 
-function decodedRuns(text: string): string[] {
+/** Decoded runs, and whether encoded text was left unread when the budget ran out. */
+function decodedRuns(text: string): { texts: string[]; unread: boolean } {
   const out: string[] = [];
   let budget = DECODE_BUDGET;
+  let unread = false;
   for (const [run] of text.matchAll(BASE64_RUN)) {
-    if ((budget -= run.length) < 0) break;
+    if ((budget -= run.length) < 0) {
+      unread = true;
+      break;
+    }
     try {
       const t = printable(Buffer.from(run.replace(/-/g, "+").replace(/_/g, "/"), "base64"));
       if (t) out.push(t);
@@ -276,10 +294,14 @@ function decodedRuns(text: string): string[] {
     }
   }
   for (const [run] of text.matchAll(HEX_RUN)) {
+    if ((budget -= run.length) < 0) {
+      unread = true;
+      break;
+    }
     const t = printable(Buffer.from(run.replace(/[ :]/g, ""), "hex"));
     if (t) out.push(t);
   }
-  return out;
+  return { texts: out, unread };
 }
 
 /** The signature flags of a text: Latin signatures on the folded copy, the others on the readable one. */
@@ -356,7 +378,13 @@ export function assess(text: string, itemFlags: readonly string[] = []): Risk {
     raise("suspect");
   }
   // Once, never recursively: what an encoded run hides is read with the same signatures, and named.
-  for (const decoded of decodedRuns(stripInvisible(text))) {
+  const { texts, unread } = decodedRuns(stripInvisible(text));
+  // Padding must not buy a lower level: encoded text the budget could not read is suspect.
+  if (unread) {
+    flags.add("injection:encoded_unread");
+    raise("suspect");
+  }
+  for (const decoded of texts) {
     const inner = signatureFlags(decoded);
     if (exfilLink(decoded)) inner.add("injection:exfil_link");
     if (!inner.size) continue;

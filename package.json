@@ -1,5 +1,6 @@
 {
   "name": "@schwarmbau/swb-feed",
+  "private": true,
   "version": "0.2.0",
   "description": "Feed any second brain: harvest the sources you choose, journal everything, grade it against your intent, route it to the brain you use.",
   "type": "module",

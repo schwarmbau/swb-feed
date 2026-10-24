@@ -7,6 +7,7 @@ import type { FeedConfig, GradedItem, VoiceKind } from "./types.ts";
 import { Ledger } from "./ledger.ts";
 import { allGraded, readHealth, voiceOfferable } from "./pipeline.ts";
 import { clip } from "./text.ts";
+import { isHeld, shownTitle } from "./guard.ts";
 import { isReviewSink, pendingReviews, reviewRows, type ReviewRow } from "../sinks/review.ts";
 import { offerOrder } from "./voice.ts";
 import { extractions, failures } from "./voice.ts";
@@ -22,8 +23,10 @@ export interface DigestResult {
   sick: string[];
 }
 
+// A held item's own words only fenced and marked, and without its link.
 const line = (i: GradedItem) =>
-  `- **${i.grade.score}**${i.grade.tier ? ` ${i.grade.tier}·${i.grade.quality ?? "?"}` : ""} ${i.url ? `[${clip(i.title, 90)}](${i.url})` : clip(i.title, 90)} · ${i.source}`;
+  `- **${i.grade.score}**${i.grade.tier ? ` ${i.grade.tier}·${i.grade.quality ?? "?"}` : ""} ${isHeld(i.risk) ? shownTitle(i.title, i.risk) : i.url ? `[${clip(i.title, 90)}](${i.url})` : clip(i.title, 90)} · ${i.source}`;
+const titleOf = (i: GradedItem | undefined) => (i ? shownTitle(i.title, i.risk, 120) : undefined);
 
 const KIND_ORDER: VoiceKind[] = ["decision", "ask", "question", "idea"];
 const VOICE_SHOWN = 8;
@@ -42,7 +45,7 @@ function voiceGroups(waiting: ReviewRow[], byId: Map<string, GradedItem>): strin
     const best = [...rows].sort((a, b) => offerOrder(a.voice!, b.voice!)).slice(0, VOICE_SHOWN);
     return [
       "",
-      `### From your voice: ${plain(clip(byId.get(item)?.title ?? v0.conversation, 80))} (${plain(v0.source)} ${plain(v0.date)}) · suggested ${counts.map(([k, n]) => `${n} ${k}${n > 1 ? "s" : ""}`).join(", ")}`,
+      `### From your voice: ${plain(titleOf(byId.get(item)) ?? clip(v0.conversation, 80))} (${plain(v0.source)} ${plain(v0.date)}) · suggested ${counts.map(([k, n]) => `${n} ${k}${n > 1 ? "s" : ""}`).join(", ")}`,
       "",
       // Unclipped: the text under each line is exactly what a plain approval writes (it lands as an
       // idea; `--kind decision` is his call). The transcript sentence is shown and never written.
@@ -108,10 +111,10 @@ export function writeDigest(cfg: FeedConfig, opts: { dir: string; now?: Date; ho
           "",
           ...sick.map(([n, h]) => `- **${n}** failing ${h.consecutive_failures}×${h.consecutive_failures >= 5 ? " (circuit open, retried every 6 h)" : ""} since ${h.last_ok?.slice(0, 16) ?? "never"}: ${h.last_error ?? ""}`),
           ...demoted.map(([n, h]) => `- **${n}** demoted ${h.demoted_at!.slice(0, 10)}: ${h.demoted_reason ?? ""} (lift: \`source reset "${n}"\`)`),
-          ...flagged.map((i) => `- ${i.title} (${i.source}): ${[...(i.flags ?? []), ...(i.risk?.level === "suspect" ? [`guard suspect: ${i.risk.flags.join(", ")}`] : [])].join("; ")}`),
-          ...parked.map(([item, f]) => `- ${byId.get(item)?.title ?? item}: own-voice reading failed ${f.length}×, parked (last: ${clip(f[f.length - 1]!.error, 120)}); try again: \`swb-feed voice reset ${item}\``),
-          ...warned.map((x) => `- ${byId.get(x.item)?.title ?? x.item}: text that tried to instruct the extractor (${clip(x.warnings!.join("; "), 160)})`),
-          ...failedDeliveries.slice(0, 10).map((d) => `- delivery to ${d.sink} failed for ${byId.get(d.id)?.title ?? d.id}: ${clip(d.error ?? "", 120)}`),
+          ...flagged.map((i) => `- ${titleOf(i)} (${i.source}): ${[...(i.flags ?? []), ...(i.risk?.level === "suspect" ? [`guard suspect: ${i.risk.flags.join(", ")}`] : [])].join("; ")}`),
+          ...parked.map(([item, f]) => `- ${titleOf(byId.get(item)) ?? item}: own-voice reading failed ${f.length}×, parked (last: ${clip(f[f.length - 1]!.error, 120)}); try again: \`swb-feed voice reset ${item}\``),
+          ...warned.map((x) => `- ${titleOf(byId.get(x.item)) ?? x.item}: text that tried to instruct the extractor (${clip(x.warnings!.join("; "), 160)})`),
+          ...failedDeliveries.slice(0, 10).map((d) => `- delivery to ${d.sink} failed for ${titleOf(byId.get(d.id)) ?? d.id}: ${clip(d.error ?? "", 120)}`),
           "",
         ]
       : []),
@@ -134,7 +137,7 @@ export function writeDigest(cfg: FeedConfig, opts: { dir: string; now?: Date; ho
       ? [`## Withdrawn from your queue: ${withdrawn.length}`, "", ...[...withdrawnBy].map(([why, n]) => `- ${n} because ${why}; a new reading's candidates take their place once it is read`), ""]
       : []),
     ...(delivered.length
-      ? ["## Handed to memory", "", ...delivered.map((d) => `- ${byId.get(d.id)?.title ?? ("title" in d ? d.title : undefined) ?? d.id} → ${d.sink}${d.ref ? ` (${d.ref})` : ""}`), ""]
+      ? ["## Handed to memory", "", ...delivered.map((d) => `- ${titleOf(byId.get(d.id)) ?? ("title" in d ? d.title : undefined) ?? d.id} → ${d.sink}${d.ref ? ` (${d.ref})` : ""}`), ""]
       : []),
     "## By project",
     "",

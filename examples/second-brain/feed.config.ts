@@ -44,7 +44,6 @@ export default defineFeed({
       sources: [
         feed({ name: "Andrej Karpathy · blog", url: "https://karpathy.github.io/feed.xml", trust: "high", limit: 5 }),
         feed({ name: "Andrej Karpathy · gists", url: "https://gist.github.com/karpathy.atom", trust: "high", kind: "code" }),
-        feed({ name: "Andrej Karpathy · YouTube", url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCXUPKJO5MZQN11PqgIvyuvQ", trust: "high", kind: "video", limit: 5 }),
         feed({ name: "Daniel Miessler", url: "https://danielmiessler.com/feed", trust: "high", limit: 15 }),
         feed({ name: "Nate B. Jones · Substack", url: "https://natesnewsletter.substack.com/feed", trust: "high", limit: 15 }),
         feed({ name: "Open Brain (OB1) · commits", url: "https://github.com/NateBJones-Projects/OB1/commits/main.atom", kind: "code", limit: 10 }),

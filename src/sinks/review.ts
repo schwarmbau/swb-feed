@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LEDGER_ROW_VERSION, type DeliverySink, type FeedConfig, type GradedItem, type ReviewDecision, type ReviewRow, type RunContext, type VoiceItem, type VoiceKind } from "../core/types.ts";
 import { unversioned } from "../core/ledger.ts";
-import { appendLines, VOICE_KINDS } from "../core/voice.ts";
+import { appendLines, voiceItems, VOICE_KINDS } from "../core/voice.ts";
 import { landedIn, voiceEntry, type Landing } from "./voice.ts";
 
 export type { ReviewDecision, ReviewRow };
@@ -39,11 +39,22 @@ export function reviewQueue(o: { approve: DeliverySink }): ReviewSink {
     review: { target: o.approve },
     async deliver(item, ctx) {
       if (ctx.dryRun) return { ref: "would queue for review", skipped: true };
-      const risk = item.risk && item.risk.level !== "none" ? { risk: item.risk.flags } : {};
-      appendReview(ctx.dataDir, { id: item.id, decision: "queued", at: new Date().toISOString(), title: item.title, source: item.source, ...(item.url ? { url: item.url } : {}), score: item.grade.score, ...risk, content_hash: item.content_hash });
+      appendReview(ctx.dataDir, queuedRow(item));
       return { ref: "queued for review" };
     },
   };
+}
+
+/** What he is shown for an item, and the text (its content hash) an approval of it names. */
+function queuedRow(item: GradedItem): ReviewRow {
+  const risk = item.risk && item.risk.level !== "none" ? { risk: item.risk.flags } : {};
+  return { id: item.id, decision: "queued", at: new Date().toISOString(), title: item.title, source: item.source, ...(item.url ? { url: item.url } : {}), score: item.grade.score, ...risk, content_hash: item.content_hash };
+}
+
+/** A held item he approved whose text changed since, with nothing newer waiting: it goes back to the queue. */
+export function revisedSinceApproval(dataDir: string, id: string, hash: string): boolean {
+  const last = reviewRows(dataDir).filter((r) => r.id === id && !r.voice && r.decision !== "approving").pop();
+  return last?.decision === "approved" && last.content_hash !== hash;
 }
 
 /** A typed candidate from his own voice waits for him. Queued once: a known id (waiting, approved or rejected) is skipped. */
@@ -61,7 +72,7 @@ function appendReview(dataDir: string, row: ReviewRow): void {
   appendLines(join(dataDir, REVIEW_FILE), `${JSON.stringify({ v: LEDGER_ROW_VERSION, ...row })}\n`);
 }
 
-const DECISIONS = new Set(["queued", "approved", "rejected", "superseded", "approving"]);
+const DECISIONS = new Set(["queued", "approved", "rejected", "superseded", "approving", "parked", "deferred"]);
 
 /** Every row, in order. A torn or foreign line is skipped, never fatal (the same law as the ledger). */
 export function reviewRows(dataDir: string): ReviewRow[] {
@@ -93,16 +104,43 @@ export function approvedTexts(dataDir: string): Set<string> {
 
 /** Candidates still waiting: queued and neither approved nor rejected, oldest first. */
 export function pendingReviews(dataDir: string): ReviewRow[] {
-  // Approved and rejected are final. A withdrawn (superseded) candidate waits again only when a later
-  // reading queues it again, e.g. after his conversation mark is removed.
+  // Approved and rejected are final. A withdrawn (superseded), parked or deferred candidate waits again
+  // only when it is queued again: by a later reading, by his `review restore`, or as a sitting frees up.
   const final = new Set<string>();
   const queued = new Map<string, ReviewRow>();
   for (const r of reviewRows(dataDir)) {
-    if (r.decision === "queued") queued.set(r.id, r);
-    else if (r.decision === "superseded") queued.delete(r.id);
+    // A row queued after a final word (a held item revised after his approval) waits again.
+    if (r.decision === "queued") {
+      queued.set(r.id, r);
+      final.delete(r.id);
+    }
+    else if (r.decision === "superseded" || r.decision === "parked" || r.decision === "deferred") queued.delete(r.id);
     else if (r.decision !== "approving") final.add(r.id);
   }
-  return [...queued.values()].filter((r) => !final.has(r.id));
+  const waiting = [...queued.values()].filter((r) => !final.has(r.id));
+  if (!waiting.some((r) => r.voice)) return waiting;
+  // What he sees is what a decision settles: every waiting lead names its repeats by the one rule.
+  const ctx = repeatContext(dataDir);
+  return waiting.map((r) => (r.voice ? { ...r, voice: withMembers(r.voice, repeatsOf(ctx, r.id, r.voice.members)) } : r));
+}
+
+type RepeatContext = { seen: Set<string>; all: VoiceItem[] };
+const repeatContext = (dataDir: string): RepeatContext => ({ seen: new Set(reviewRows(dataDir).map((r) => r.id)), all: voiceItems(dataDir) });
+const withMembers = (v: VoiceItem, members: NonNullable<VoiceItem["members"]>): VoiceItem => {
+  const { members: _, ...rest } = v;
+  return members.length ? { ...rest, members } : rest;
+};
+
+/**
+ * The repeats a lead carries, by the one rule voiceOfferable's leadOf also follows (pipeline.ts): the
+ * list saved when it was queued, plus his repeats of it that never had a review row of their own. The
+ * review list, `review show`, the written entry and the settling at decision time all read this, so a
+ * decision never settles a repeat he was not shown.
+ */
+export function repeatsOf(ctx: RepeatContext, leadId: string, saved: VoiceItem["members"] = []): NonNullable<VoiceItem["members"]> {
+  const out = new Map((saved ?? []).map((m) => [m.id, m]));
+  for (const v of ctx.all) if (v.same_as === leadId && v.id !== leadId && !ctx.seen.has(v.id) && v.speaker_verified && !out.has(v.id)) out.set(v.id, { id: v.id, ...(v.at ? { at: v.at } : {}) });
+  return [...out.values()];
 }
 
 /** Ids that must not be queued again: waiting now, or decided by him. A withdrawn id may be queued again. */
@@ -148,6 +186,13 @@ export async function approveReview(
   if (o.project || o.kind) throw new Error("--project and --kind apply to a voice candidate only");
   const item = items.find((i) => i.id === candidate.id);
   if (!item) throw new Error(`item ${candidate.id} is queued but no longer in the ledger`);
+  // An approval delivers exactly the text he was shown. A revision since (or a row queued before rows
+  // named their text) is withdrawn and the present text is queued, guarded anew; nothing is delivered.
+  if (candidate.content_hash !== item.content_hash) {
+    appendReview(cfg.dataDir, { id: item.id, decision: "superseded", at: new Date().toISOString(), title: `withdrawn: the item changed after it was queued (was: ${candidate.title ?? item.id})`, ...(candidate.content_hash ? { content_hash: candidate.content_hash } : {}) });
+    appendReview(cfg.dataDir, queuedRow(item));
+    throw new Error(`item ${item.id} changed after it was queued: nothing was delivered; its present text waits in the queue, review it again`);
+  }
   const sink = sinkFor(cfg, item);
   const accepts = sink.review.target.accepts ?? ["public"];
   if (!accepts.includes(item.privacy_class)) throw new Error(`item ${item.id} is ${item.privacy_class}; the target accepts ${accepts.join(", ")}`);
@@ -222,6 +267,7 @@ async function approveVoice(cfg: FeedConfig, candidate: ReviewRow, v: VoiceItem,
   const kind = landed?.kind ?? landing.kind;
   const row: ReviewRow = { id: candidate.id, decision: "approved", at: approvedAt, title: `${kind}: ${item.text}`, ref, voice: item, landed_kind: kind };
   appendReview(cfg.dataDir, row);
+  settleMembers(cfg.dataDir, candidate, row);
   return row;
 }
 
@@ -232,6 +278,83 @@ async function approveVoice(cfg: FeedConfig, candidate: ReviewRow, v: VoiceItem,
  */
 export function supersedeVoice(dataDir: string, r: ReviewRow, reason: string): void {
   appendReview(dataDir, { id: r.id, decision: "superseded", at: new Date().toISOString(), title: `withdrawn: ${reason} (was: ${r.title ?? r.id})`, ...(r.voice ? { voice: r.voice } : {}) });
+}
+
+export interface TriagePlan {
+  /** Waiting candidates that are not his voice: parked. */
+  park: ReviewRow[];
+  /** His own candidates past one sitting: deferred, most useful kept. */
+  defer: ReviewRow[];
+  /** What waits for him afterwards. */
+  keep: ReviewRow[];
+}
+
+/**
+ * One sitting out of what waits now: a candidate that is not his voice is parked (one he restored stays),
+ * and of his own only the `maxWaiting` most useful stay; the rest go back among those not yet offered.
+ * An approval that was started and interrupted is never touched. Nothing is written unless applied.
+ */
+export function triageVoice(dataDir: string, maxWaiting: number, order: (a: VoiceItem, b: VoiceItem) => number, apply: boolean): TriagePlan {
+  const open = openIntents(dataDir);
+  const waiting = pendingReviews(dataDir).filter((r) => r.voice && !open.has(r.id));
+  // Restored once is restored for good: a deferred and re-offered candidate keeps it.
+  const restoredIds = new Set(reviewRows(dataDir).filter((r) => r.restored).map((r) => r.id));
+  const park = waiting.filter((r) => !r.voice!.speaker_verified && !r.restored && !restoredIds.has(r.id));
+  const his = waiting.filter((r) => !park.includes(r)).sort((a, b) => order(a.voice!, b.voice!));
+  const held = pendingReviews(dataDir).filter((r) => r.voice && open.has(r.id)).length;
+  const room = Math.max(0, maxWaiting - held);
+  const plan = { park, defer: his.slice(room), keep: his.slice(0, room) };
+  if (apply) {
+    for (const r of plan.park) parkVoice(dataDir, r, r.voice!.quote_found ? "not his by the recorder's labels" : "the quote is not in the transcript");
+    for (const r of plan.defer) deferVoice(dataDir, r);
+  }
+  return plan;
+}
+
+/** A waiting candidate that is not his voice leaves his queue; nothing is deleted and `review restore` brings it back. */
+export function parkVoice(dataDir: string, r: ReviewRow, reason: string): void {
+  appendReview(dataDir, { id: r.id, decision: "parked", at: new Date().toISOString(), title: `parked: ${reason} (was: ${r.title ?? r.id})`, ...(r.voice ? { voice: r.voice } : {}) });
+}
+
+/** A waiting candidate past one sitting goes back among those not yet offered; a run offers it again as the queue empties. */
+export function deferVoice(dataDir: string, r: ReviewRow): void {
+  appendReview(dataDir, { id: r.id, decision: "deferred", at: new Date().toISOString(), title: `deferred to a later sitting (was: ${r.title ?? r.id})`, ...(r.voice ? { voice: r.voice } : {}), ...(r.restored ? { restored: true } : {}) });
+}
+
+/** His `review restore`: a parked candidate waits for him again, and no triage parks it a second time. */
+export function restoreVoice(dataDir: string, v: VoiceItem): void {
+  appendReview(dataDir, { id: v.id, decision: "queued", at: new Date().toISOString(), title: voiceTitle(v), source: v.source, voice: v, restored: true });
+}
+
+/**
+ * The repeats a lead carries are settled with it: each gets its own receipt, naming the lead. A repeat
+ * already decided on its own is left as it is.
+ */
+function settleMembers(dataDir: string, lead: ReviewRow, row: ReviewRow): void {
+  // The repeats are worked out when he decides, from the recorded candidates, not only from the list saved
+  // when the lead was queued: a lead queued from a parked copy (restored) carries no list, and his repeats
+  // of it must be settled all the same. A repeat that is not his is never settled here.
+  // The lead row comes from pendingReviews, so its members are already what he was shown (repeatsOf).
+  const rows = reviewRows(dataDir);
+  const all = voiceItems(dataDir);
+  const ids = (lead.voice?.members ?? []).map((m) => m.id);
+  if (!ids.length) return;
+  const decided = new Set(rows.filter((r) => r.decision === "approved" || r.decision === "rejected").map((r) => r.id));
+  const items = new Map(all.map((v) => [v.id, v]));
+  for (const id of ids) {
+    if (decided.has(id)) continue;
+    const v = items.get(id);
+    appendReview(dataDir, {
+      id,
+      decision: row.decision,
+      at: row.at,
+      title: `${row.decision} with ${lead.id}${v ? `: ${v.text}` : ""}`,
+      with: lead.id,
+      ...(row.ref ? { ref: row.ref } : {}),
+      ...(v ? { voice: v } : {}),
+      ...(row.landed_kind ? { landed_kind: row.landed_kind } : {}),
+    });
+  }
 }
 
 /** Candidates whose approval was started and never received its receipt (a crash inside approve), by id: the newest intent. */
@@ -260,5 +383,6 @@ export function rejectReview(cfg: FeedConfig, prefix: string): ReviewRow {
   const candidate = pick(cfg.dataDir, prefix);
   const row: ReviewRow = { id: candidate.id, decision: "rejected", at: new Date().toISOString(), ...(candidate.title ? { title: candidate.title } : {}) };
   appendReview(cfg.dataDir, row);
+  settleMembers(cfg.dataDir, candidate, row);
   return row;
 }

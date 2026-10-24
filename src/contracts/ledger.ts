@@ -102,6 +102,10 @@ export interface VoiceItem {
   marked?: string;
   /** An earlier candidate of the same conversation he already decided, which this one overlaps (a revision, a reversal). */
   related?: { id: string; kind: VoiceKind; decision: "approved" | "rejected" | "interrupted"; at: string; quote: string; sentence?: string };
+  /** The extractor saw the same point earlier in this reading: the id of that candidate, which carries this one. */
+  same_as?: string;
+  /** Offered as one entry: the repeats of this point in the same reading, settled with it. */
+  members?: { id: string; at?: string }[];
   /** The label of the turn the quote was found in. */
   speaker?: string;
   /** The sentence the quote sits in (cut around the quote past 600 characters, marked "…"), so he sees a negation or a question around it. Shown at approval, never landed. */
@@ -118,8 +122,12 @@ export interface VoiceItem {
   extracted_at: string;
 }
 
-/** `superseded`: a voice candidate whose conversation was revised before he decided; the revision's candidates replace it. */
-export type ReviewDecision = "queued" | "approved" | "rejected" | "superseded" | "approving";
+/**
+ * `superseded`: a voice candidate whose conversation was revised before he decided; the revision's candidates replace it.
+ * `parked`: taken out of his queue as not his voice; `review restore` queues it again.
+ * `deferred`: taken out of a full queue, back among the candidates not yet offered; it returns as he decides.
+ */
+export type ReviewDecision = "queued" | "approved" | "rejected" | "superseded" | "approving" | "parked" | "deferred";
 
 /** One row of review.jsonl. */
 export interface ReviewRow {
@@ -139,6 +147,10 @@ export interface ReviewRow {
   landed_kind?: VoiceKind;
   /** approving: whether he typed the kind. */
   typed?: boolean;
+  /** queued by his `review restore`: a triage never parks it again. */
+  restored?: boolean;
+  /** approved or rejected as a repeat: the candidate whose decision settled it. */
+  with?: string;
   /** queued: the guard's flags on the item, shown to him at approval. */
   risk?: string[];
   /** queued and approved: the item's content hash, so an approval binds to the text he saw, never to a later revision. */
